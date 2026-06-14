@@ -1,13 +1,24 @@
 import React, { useState } from "react";
 import { Sentence } from "../types";
-import { PlusCircle, Search, Trash2, Calendar, Award, AlertCircle, Sparkles } from "lucide-react";
-import { motion } from "motion/react";
+import { 
+  PlusCircle, Search, Trash2, Calendar, Award, AlertCircle, 
+  Sparkles, CheckCircle, RefreshCw, Languages, ChevronLeft 
+} from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 import { formatRelativeTime } from "../utils";
+import SpeakButton from "./SpeakButton";
 
 interface AddSentenceViewProps {
   sentences: Sentence[];
   onAddSentence: (german: string, arabic: string) => void;
   onDeleteSentence: (id: string) => void;
+}
+
+interface GrammarCheckResult {
+  hasErrors: boolean;
+  correctedText: string;
+  explanation: string;
+  highlightedWords: { word: string; state: "error" | "correct"; suggestion?: string }[];
 }
 
 export default function AddSentenceView({
@@ -21,6 +32,50 @@ export default function AddSentenceView({
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
+  // Grammar check loading and result states
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<GrammarCheckResult | null>(null);
+
+  const handleCheckGrammar = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!german.trim()) return;
+    
+    setIsChecking(true);
+    setCheckResult(null);
+    setErrorMessage("");
+
+    try {
+      const storedKey = localStorage.getItem("deutsch_spaced_rep_api_key_override") || "";
+      const response = await fetch("/api/check-grammar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sentence: german.trim(),
+          customApiKey: storedKey
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("فشل فحص القواعد. تأكد من اتصال الإنترنت أو صلاحية مفتاح Gemini.");
+      }
+
+      const data = await response.json();
+      setCheckResult(data);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(err?.message || "حدث خطأ غير متوقع أثناء فحص الجملة.");
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  const handleApplyCorrection = () => {
+    if (checkResult) {
+      setGerman(checkResult.correctedText);
+      setCheckResult(null);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
@@ -31,7 +86,6 @@ export default function AddSentenceView({
       return;
     }
 
-    // Basic regex check to verify that german doesn't have arabic characters or similar
     const containsArabicInGerman = /[\u0600-\u06FF]/.test(german);
     if (containsArabicInGerman) {
       setErrorMessage("تنبيه: يبدو أنك أدخلت أحرفاً عربية في حقل الجملة الألمانية!");
@@ -42,10 +96,11 @@ export default function AddSentenceView({
     setSuccessMessage("تم حفظ الجملة بنجاح وتجهيزها للتكرار المتباعد! 🎉");
     setGerman("");
     setArabic("");
+    setCheckResult(null);
     
     setTimeout(() => {
       setSuccessMessage("");
-    }, 3000);
+    }, 4000);
   };
 
   const filteredSentences = sentences.filter(
@@ -60,16 +115,16 @@ export default function AddSentenceView({
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
-        className="p-6 rounded-2xl border bg-slate-900/60 border-blue-950/50 shadow-[0_4px_24px_rgba(0,0,0,0.5)] backdrop-blur-md"
+        className="p-6 rounded-3xl border bg-slate-900/60 border-blue-950/50 shadow-[0_4px_24px_rgba(0,0,0,0.5)] backdrop-blur-md"
       >
         <div className="flex items-start gap-4">
-          <div className="p-3 bg-blue-950/80 rounded-xl border border-blue-500/20 text-blue-400">
+          <div className="p-3 bg-blue-950/80 rounded-2xl border border-blue-500/20 text-blue-400">
             <Sparkles className="w-6 h-6 animate-pulse" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white mb-2">مخزن الجمل والتعلم الذاتي</h2>
+            <h2 className="text-xl font-bold text-white mb-2">مخزن الجمل والتعلم الذاتي مع مصحح الأخطاء</h2>
             <p className="text-slate-400 text-sm leading-relaxed">
-              أضف الجمل الألمانية اليومية مع ترجمتها العربية ليقوم التطبيق بجدولتها تلقائياً ضمن نظام التكرار المتباعد الذكي. كلما أجبت بشكل صحيح في الاختبار يزداد مستوى إتقانك وتتباعد فترات المراجعة!
+              أدخل الجملة واضغط على فحص القواعد للتثبت التلقائي من دقتها الإملائية والنحوية وحالة الحروف الكبيرة (Nouns Capitalization) في قواعد أليمانيا، بالإضافة لسماع النطق الطبيعي بمرونة.
             </p>
           </div>
         </div>
@@ -79,17 +134,34 @@ export default function AddSentenceView({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Form Container */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="p-6 rounded-2xl border bg-slate-950/80 border-blue-900/40 shadow-inner">
-            <h3 className="text-lg font-bold text-blue-300 flex items-center gap-2 mb-4">
+          <div className="p-6 rounded-3xl border bg-slate-950/80 border-blue-900/40 shadow-inner space-y-4">
+            <h3 className="text-lg font-bold text-blue-300 flex items-center gap-2">
               <PlusCircle className="w-5 h-5 text-blue-400" />
               إضافة جملة ألمانية جديدة
             </h3>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2 text-right">
-                  الجملة باللغة الألمانية (Deutsch):
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    الجملة باللغة الألمانية (Deutsch):
+                  </label>
+                  {german.trim() && (
+                    <button
+                      onClick={handleCheckGrammar}
+                      disabled={isChecking}
+                      type="button"
+                      className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 bg-cyan-950/30 border border-cyan-800/40 hover:bg-cyan-900/40 px-2 py-1 rounded-md cursor-pointer disabled:opacity-40"
+                    >
+                      {isChecking ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3 text-cyan-350" />
+                      )}
+                      <span>فحص الأخطاء بـ Gemini 🤖</span>
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={german}
@@ -99,6 +171,77 @@ export default function AddSentenceView({
                   dir="ltr"
                 />
               </div>
+
+              {/* Grammar Analysis Feedback Panel */}
+              <AnimatePresence>
+                {checkResult && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="p-4 rounded-xl border bg-slate-900/80 border-slate-800 space-y-3.5 text-right"
+                  >
+                    <div className="flex items-center gap-2">
+                      {checkResult.hasErrors ? (
+                        <div className="flex items-center gap-1.5 text-rose-400 font-bold text-xs bg-rose-950/30 px-2.5 py-1 rounded-full border border-rose-900/30">
+                          <span>للأسف، توجد أخطاء في الجملة ⚠️</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-xs bg-emerald-950/30 px-2.5 py-1 rounded-full border border-emerald-900/30">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          <span>الجملة صحيحة قواعدياً وممتازة! ✨</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Word Breakdowns highlighting incorrect tokens */}
+                    <div className="flex flex-wrap gap-1.5 bg-slate-950 p-3 rounded-lg border border-slate-900/80" dir="ltr">
+                      {checkResult.highlightedWords.map((token, i) => (
+                        <span
+                          key={i}
+                          className={`px-2 py-0.5 rounded-md text-xs font-semibold cursor-help relative group ${
+                            token.state === "error"
+                              ? "bg-red-950/80 text-rose-400 border border-rose-900/80"
+                              : "bg-emerald-950/40 text-emerald-350 border border-emerald-900/40"
+                          }`}
+                          title={token.suggestion ? `التصحيح المقترح: ${token.suggestion}` : undefined}
+                        >
+                          {token.word}
+                          {token.suggestion && (
+                            <span className="hidden group-hover:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 px-2 py-1 bg-slate-950 border border-stone-800 text-[10px] text-yellow-300 whitespace-nowrap rounded shadow-lg z-10 font-sans">
+                              التصحيح: {token.suggestion}
+                            </span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Show Suggestion applied quickly */}
+                    {checkResult.hasErrors && (
+                      <div className="bg-slate-950/40 p-2.5 rounded-lg border border-yellow-950/30 flex items-center justify-between gap-2">
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-500 font-bold block mb-0.5">الصيغة المصححة والمفضلة:</span>
+                          <span className="text-xs text-yellow-300 font-sans font-medium" dir="ltr">{checkResult.correctedText}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleApplyCorrection}
+                          className="px-2.5 py-1 bg-blue-900/50 hover:bg-blue-800 border border-blue-500/20 rounded text-[10px] text-white font-bold transition-all cursor-pointer"
+                        >
+                          استبدال بالنسخة المصححة
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Detailed pedagogical rules explanation in Arabic */}
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold block mb-0.5">شرح وتصحيح المعلم:</span>
+                      <p className="text-xs text-slate-300 leading-relaxed font-sans">{checkResult.explanation}</p>
+                    </div>
+
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-2 text-right">
@@ -173,16 +316,20 @@ export default function AddSentenceView({
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className="p-5 rounded-2xl border bg-slate-900/40 border-slate-900 hover:border-blue-900/50 hover:bg-slate-900/60 transition-all flex justify-between items-center group relative overflow-hidden"
+                  className="p-5 rounded-3xl border bg-slate-900/40 border-slate-900 hover:border-blue-900/50 hover:bg-slate-900/60 transition-all flex justify-between items-center group relative overflow-hidden"
                 >
                   {/* Subtle hover glow accent */}
                   <div className="absolute top-0 right-0 w-1.5 h-full bg-blue-500 transition-all opacity-0 group-hover:opacity-100" />
 
                   <div className="space-y-2 flex-grow pl-4">
-                    {/* German sentence */}
-                    <div className="text-left font-sans text-base font-bold text-blue-200 leading-snug group-hover:text-cyan-300 transition-colors" dir="ltr">
-                      {item.german}
+                    {/* German sentence row with Speaker Button integrated directly */}
+                    <div className="flex items-center gap-2.5 text-left">
+                      <SpeakButton text={item.german} className="shrink-0" />
+                      <div className="font-sans text-base font-bold text-blue-100 leading-snug group-hover:text-cyan-300 transition-colors" dir="ltr">
+                        {item.german}
+                      </div>
                     </div>
+                    
                     {/* Arabic translation */}
                     <div className="text-right text-sm text-slate-300">
                       {item.arabic}

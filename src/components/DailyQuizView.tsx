@@ -6,10 +6,12 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { calculateNextReview } from "../utils";
+import SpeakButton from "./SpeakButton";
 
 interface DailyQuizViewProps {
   sentences: Sentence[];
   onUpdateSentence: (updated: Sentence) => void;
+  onAwardXp: (xp: number, srcType: "speaking_sentences" | "sentences" | "correct_quizzes" | "chat_turns") => void;
 }
 
 interface ShuffleWord {
@@ -17,7 +19,7 @@ interface ShuffleWord {
   text: string;
 }
 
-export default function DailyQuizView({ sentences, onUpdateSentence }: DailyQuizViewProps) {
+export default function DailyQuizView({ sentences, onUpdateSentence, onAwardXp }: DailyQuizViewProps) {
   const [bypassFilter, setBypassFilter] = useState(false);
   const [activeQueue, setActiveQueue] = useState<Sentence[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -131,8 +133,11 @@ export default function DailyQuizView({ sentences, onUpdateSentence }: DailyQuiz
       const nextDate = calculateNextReview(nextLevel);
       updatedSentence.level = nextLevel;
       updatedSentence.nextReview = nextDate.toISOString();
+
+      // Award XP
+      onAwardXp(20, "correct_quizzes");
     } else {
-      // Mistake path: reset level to 0, schedule immediate / standard tomorrow review
+      // Mistake path: reset level to 0, schedule immediate
       updatedSentence.level = 0;
       updatedSentence.nextReview = new Date().toISOString();
     }
@@ -177,7 +182,7 @@ export default function DailyQuizView({ sentences, onUpdateSentence }: DailyQuiz
 
       {/* Main stage area */}
       {activeQueue.length === 0 ? (
-        <div className="p-12 text-center rounded-2xl border border-slate-900 bg-slate-950/70 py-16 space-y-6 shadow-2xl">
+        <div className="p-12 text-center rounded-3xl border border-slate-900 bg-slate-950/70 py-16 space-y-6 shadow-2xl">
           <div className="w-16 h-16 bg-blue-950/80 border border-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mx-auto shadow-[0_0_15px_rgba(59,130,246,0.2)]">
             <CheckCircle2 className="w-8 h-8 text-cyan-400" />
           </div>
@@ -227,7 +232,7 @@ export default function DailyQuizView({ sentences, onUpdateSentence }: DailyQuiz
               initial={{ opacity: 0, scale: 0.98, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.98, y: -10 }}
-              className="p-8 rounded-2xl border bg-slate-950 border-blue-950/80 shadow-[0_12px_44px_rgba(0,0,0,0.6)] space-y-8 relative overflow-hidden"
+              className="p-8 rounded-3xl border bg-slate-950 border-blue-950/80 shadow-[0_12px_44px_rgba(0,0,0,0.6)] space-y-8 relative overflow-hidden"
             >
               {/* Card visual accent */}
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-l from-blue-700 via-cyan-500 to-transparent" />
@@ -311,10 +316,10 @@ export default function DailyQuizView({ sentences, onUpdateSentence }: DailyQuiz
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className={`p-5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                    className={`p-5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
                       isCorrect 
-                        ? "bg-emerald-950/40 border-emerald-900 text-emerald-200" 
-                        : "bg-red-950/40 border-red-900 text-red-100"
+                        ? "bg-emerald-950/40 border-emerald-950 text-emerald-100" 
+                        : "bg-red-950/40 border-red-910 text-red-100"
                     }`}
                   >
                     <div className="space-y-2 flex-grow">
@@ -332,11 +337,14 @@ export default function DailyQuizView({ sentences, onUpdateSentence }: DailyQuiz
                         )}
                       </div>
 
-                      {/* Display correction details */}
-                      <div className="space-y-1 mt-1 text-xs">
-                        <div className="flex text-left gap-1 items-center" dir="ltr">
-                          <span className="text-slate-400 font-bold">الإجابة الصحيحة:</span>
-                          <span className="text-white font-sans font-bold text-sm select-all">{activeSentence.german}</span>
+                      {/* Display correction details + Audio Listening */}
+                      <div className="space-y-2 mt-1 text-xs text-right">
+                        <div className="flex text-left gap-2.5 items-center justify-start" dir="ltr">
+                          <SpeakButton text={activeSentence.german} className="shrink-0 scale-95" />
+                          <div className="flex items-center gap-1">
+                            <span className="text-slate-450 font-bold">الإجابة الصحيحة:</span>
+                            <span className="text-white font-sans font-bold text-sm select-all">{activeSentence.german}</span>
+                          </div>
                         </div>
                         {!isCorrect && (
                           <div className="flex text-left gap-1 items-center" dir="ltr">

@@ -84,7 +84,117 @@ async function startServer() {
       const parsed = JSON.parse(text);
       res.json(parsed);
     } catch (error: any) {
-      console.error("Gemini API Error:", error);
+      console.error("Gemini API Error (chat):", error);
+      res.status(500).json({ error: error?.message || "Internal server error" });
+    }
+  });
+
+  app.post("/api/check-grammar", async (req, res) => {
+    try {
+      const { sentence, customApiKey } = req.body;
+      const resolvedKey = customApiKey && customApiKey.trim() !== "" ? customApiKey.trim() : process.env.GEMINI_API_KEY;
+
+      if (!resolvedKey) {
+        throw new Error("Missing Gemini API Key.");
+      }
+
+      const activeAi = new GoogleGenAI({
+        apiKey: resolvedKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+
+      const prompt = `
+        Analyze the German spelling and grammar of the following sentence:
+        "${sentence}"
+
+        Evaluate if there are any grammatical, spelling, casing (German nouns must be capitalized), or syntax errors.
+        Also break down the words of the input sentence and classify each word's correctness status relative to context.
+
+        Please respond in strict JSON matching this structure:
+        {
+          "hasErrors": boolean (true if there are spelling, syntax, casing, or word order problems. False if the sentence is completely 100% correct),
+          "correctedText": "The fully corrected German sentence.",
+          "explanation": "A gentle and helpful explanation of all mistakes in Arabic. If correct, provide an encouraging statement in Arabic.",
+          "highlightedWords": [
+            {
+              "word": "original_word_from_input",
+              "state": "error" or "correct",
+              "suggestion": "corrected_word_if_applicable"
+            }
+          ]
+        }
+        
+        Ensure every word from the input sentence appears in "highlightedWords" list in sequential order.
+      `;
+
+      const response = await activeAi.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: "You are a professional German grammar helper who outputs valid JSON according to the schema.",
+          responseMimeType: "application/json",
+        }
+      });
+
+      const text = response.text || "{}";
+      res.json(JSON.parse(text));
+    } catch (error: any) {
+      console.error("Gemini API Error (check-grammar):", error);
+      res.status(500).json({ error: error?.message || "Internal server error" });
+    }
+  });
+
+  app.post("/api/analyse-speech", async (req, res) => {
+    try {
+      const { targetText, transcribedText, customApiKey } = req.body;
+      const resolvedKey = customApiKey && customApiKey.trim() !== "" ? customApiKey.trim() : process.env.GEMINI_API_KEY;
+
+      if (!resolvedKey) {
+        throw new Error("Missing Gemini API Key.");
+      }
+
+      const activeAi = new GoogleGenAI({
+        apiKey: resolvedKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+
+      const prompt = `
+        The user is practicing German pronunciation.
+        Correct targeted sentence: "${targetText}"
+        What the speech transcriber recognized from the user's voice: "${transcribedText}"
+
+        Review the phonetic differences between targetText and transcribedText.
+        Rate their pronunciation score from 0 to 100 based on word matches and closeness.
+        Provide a friendly, encouraging analysis in Arabic detailing pronunciation tips for typical Arabic speaker pitfalls (like letters 'p' vs 'b', spelling rules, ending consonants, Umlauts like ä, ö, ü, or diphthongs like 'ei', 'eu', 'ie').
+
+        Please respond with a strict JSON structure:
+        {
+          "score": number (0 to 100, e.g. 95),
+          "isCorrect": boolean (true if score >= 75),
+          "feedback": "A highly pedagogical feedback text in Arabic. Highlight exactly which letters or vowels might have been mispronounced or substituted, along with tips.",
+          "wordAnalysis": [
+            {
+              "word": "word_from_target_sentence",
+              "state": "correct" or "incorrect" or "missing",
+              "suggestion": "guidance on how to mouth or pronounce this word if incorrect"
+            }
+          ]
+        }
+      `;
+
+      const response = await activeAi.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: "You are a friendly German pronunciation coach who outputs valid JSON according to the schema.",
+          responseMimeType: "application/json",
+        }
+      });
+
+      const text = response.text || "{}";
+      res.json(JSON.parse(text));
+    } catch (error: any) {
+      console.error("Gemini API Error (analyse-speech):", error);
       res.status(500).json({ error: error?.message || "Internal server error" });
     }
   });

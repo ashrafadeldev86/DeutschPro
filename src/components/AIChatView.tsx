@@ -2,18 +2,21 @@ import React, { useState, useEffect, useRef } from "react";
 import { Sentence, ChatMessage } from "../types";
 import { 
   Send, Sparkles, AlertCircle, RefreshCw, Key, BookOpen, 
-  Settings, CheckCircle, BrainCircuit, MessageSquare, Info 
+  Settings, CheckCircle, BrainCircuit, MessageSquare, Info, 
+  Mic, MicOff, Volume2 
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import SpeakButton from "./SpeakButton";
 
 interface AIChatViewProps {
   sentences: Sentence[];
+  onAwardXp: (xp: number, srcType: "speaking_sentences" | "sentences" | "correct_quizzes" | "chat_turns") => void;
 }
 
 const LOCAL_STORAGE_CHAT_KEY = "deutsch_spaced_rep_chat_history";
 const LOCAL_STORAGE_KEY_OVERRIDE = "deutsch_spaced_rep_api_key_override";
 
-export default function AIChatView({ sentences }: AIChatViewProps) {
+export default function AIChatView({ sentences, onAwardXp }: AIChatViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userInput, setUserInput] = useState("");
   const [customApiKey, setCustomApiKey] = useState(() => {
@@ -26,7 +29,9 @@ export default function AIChatView({ sentences }: AIChatViewProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [initLoading, setInitLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isListening, setIsListening] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   // Load chat history on mount
   useEffect(() => {
@@ -60,6 +65,52 @@ export default function AIChatView({ sentences }: AIChatViewProps) {
     setCustomApiKey(key);
     if (typeof window !== "undefined") {
       localStorage.setItem(LOCAL_STORAGE_KEY_OVERRIDE, key);
+    }
+  };
+
+  const startVoiceDictation = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("عذراً، متصفحك لا يدعم الإملاء الصوتي المباشر. جرب استخدام متصفح Chrome.");
+      return;
+    }
+
+    try {
+      const rec = new SpeechRecognition();
+      rec.lang = "de-DE";
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+
+      rec.onstart = () => {
+        setIsListening(true);
+      };
+
+      rec.onresult = (e: any) => {
+        const text = e.results[0][0].transcript;
+        setUserInput(prev => prev + (prev ? " " : "") + text);
+      };
+
+      rec.onerror = (err: any) => {
+        console.error("Dictation recognition error:", err);
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = rec;
+      rec.start();
+    } catch (e) {
+      console.error(e);
+      setIsListening(false);
+    }
+  };
+
+  const stopVoiceDictation = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
     }
   };
 
@@ -143,6 +194,9 @@ export default function AIChatView({ sentences }: AIChatViewProps) {
           correction: data.correction
         };
         setMessages([...updatedMessages, assistantMessage]);
+
+        // Award dynamic chat turn XP!
+        onAwardXp(15, "chat_turns");
       } else {
         throw new Error("تلميح: تأكد من صحة مفتاح Gemini API المدخل.");
       }
@@ -165,7 +219,7 @@ export default function AIChatView({ sentences }: AIChatViewProps) {
     <div className="space-y-6" dir="rtl">
       
       {/* Settings / API Key Segment */}
-      <div className="p-4 rounded-xl bg-slate-900/40 border border-blue-950/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="p-4 rounded-3xl bg-slate-900/40 border border-blue-950/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <BrainCircuit className="w-5 h-5 text-blue-400 shrink-0" />
           <div>
@@ -238,7 +292,7 @@ export default function AIChatView({ sentences }: AIChatViewProps) {
 
       {/* Main Chat Area */}
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
-        <div className="p-6 rounded-2xl border bg-slate-950 border-blue-950 shadow-[0_12px_44px_rgba(0,0,0,0.65)] relative overflow-hidden flex flex-col min-h-[550px]" style={{ maxHeight: "650px" }}>
+        <div className="p-6 rounded-3xl border bg-slate-950 border-blue-950 shadow-[0_12px_44px_rgba(0,0,0,0.65)] relative overflow-hidden flex flex-col min-h-[550px]" style={{ maxHeight: "650px" }}>
           
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-l from-blue-700 via-cyan-500 to-transparent" />
 
@@ -298,15 +352,20 @@ export default function AIChatView({ sentences }: AIChatViewProps) {
                       className={`flex ${isModel ? "justify-start" : "justify-end"} items-start gap-2.5`}
                     >
                       {/* Message Bubble wrapper */}
-                      <div className={`max-w-[85%] rounded-2xl p-4 md:p-5 border space-y-2.5 ${
+                      <div className={`max-w-[85%] rounded-3xl p-4 md:p-5 border space-y-2.5 ${
                         isModel 
                           ? "bg-slate-900/80 border-blue-950/80 text-right rounded-tr-none self-start" 
                           : "bg-blue-950/60 border-blue-800/40 text-left rounded-tl-none self-end"
                       }`}>
                         
                         {/* Header Label */}
-                        <div className={`text-[10px] font-bold tracking-wider ${isModel ? "text-cyan-400 text-right" : "text-slate-400 text-left"}`}>
-                          {isModel ? "المعلم الذكي الألماني" : "أنت (صديق الألمانية)"}
+                        <div className={`flex items-center justify-between text-[10px] font-bold tracking-wider ${isModel ? "text-cyan-400" : "text-slate-400"}`}>
+                          <span>{isModel ? "المعلم الذكي الألماني" : "أنت (صديق الألمانية)"}</span>
+                          
+                          {/* Embedded Speaker trig for simple listening */}
+                          {isModel && (
+                            <SpeakButton text={msg.content} className="scale-90" />
+                          )}
                         </div>
 
                         {/* German Content of the Message */}
@@ -330,8 +389,8 @@ export default function AIChatView({ sentences }: AIChatViewProps) {
                         {/* Dynamic Correction and guidance of current sentence */}
                         {isModel && msg.correction && (
                           <div className="pt-2.5 p-3 rounded-xl bg-slate-950/60 border border-slate-900/80 text-right">
-                            <span className="text-[10px] text-yellow-500 font-bold block mb-1">💡 مراجعة وتصحيح المعلم:</span>
-                            <p className="text-xs text-yellow-200/90 leading-relaxed font-sans">{msg.correction}</p>
+                            <span className="text-[10px] text-yellow-500 font-bold block mb-1">💡 مراجعة وتصحيح واقتراحات المعلم:</span>
+                            <p className="text-xs text-yellow-250/90 leading-relaxed font-sans">{msg.correction}</p>
                           </div>
                         )}
 
@@ -346,7 +405,7 @@ export default function AIChatView({ sentences }: AIChatViewProps) {
             {/* AI is thinking/loading indicator */}
             {isLoading && (
               <div className="flex justify-start items-center gap-2.5 p-1">
-                <div className="bg-slate-900 rounded-2xl p-4 border border-blue-950/80 flex items-center gap-2">
+                <div className="bg-slate-900 rounded-3xl p-4 border border-blue-950/80 flex items-center gap-2">
                   <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
                   <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
                   <span className="h-1.5 w-1.5 bg-cyan-400 rounded-full animate-bounce" />
@@ -364,14 +423,36 @@ export default function AIChatView({ sentences }: AIChatViewProps) {
             </div>
           )}
 
-          {/* Message input elements */}
-          <form onSubmit={handleSendMessage} className="mt-auto pt-4 border-t border-blue-950/60 flex items-center gap-3 shrink-0">
+          {/* Message input elements with built-in voice dictionary */}
+          <form onSubmit={handleSendMessage} className="mt-auto pt-4 border-t border-blue-950/60 flex items-center gap-2.5 shrink-0">
+            
+            {/* Dictation triggers */}
+            <button
+              type="button"
+              onClick={isListening ? stopVoiceDictation : startVoiceDictation}
+              disabled={messages.length === 0 || isLoading}
+              className={`p-3.5 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
+                isListening 
+                  ? "bg-red-650 text-white border-red-550 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.4)]" 
+                  : "bg-slate-900 text-slate-400 border-blue-950 hover:text-white"
+              }`}
+              title="تحدث بالألمانية ليتم إملاؤه في الحقل 🎙️"
+            >
+              {isListening ? <MicOff className="w-4.5 h-4.5" /> : <Mic className="w-4.5 h-4.5" />}
+            </button>
+
             <input
               type="text"
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
               disabled={messages.length === 0 || isLoading}
-              placeholder={messages.length === 0 ? "يجب بدء المحادثة الجديدة أولاً بالضغط على الزر بالأعلى" : "رد على المعلم هنا باللغة الألمانية..."}
+              placeholder={
+                isListening 
+                  ? "تحدث الآن بالألمانية بوضوح..." 
+                  : messages.length === 0 
+                  ? "يجب بدء المحادثة الجديدة أولاً بالضغط على الزر بالأعلى" 
+                  : "رد على المعلم هنا بالألمانية (كتابةً أو صوتاً)..."
+              }
               className="flex-grow px-4 py-3 bg-slate-900 text-white text-sm border border-blue-950/60 rounded-xl focus:outline-none focus:border-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed font-sans"
               dir="ltr"
             />
