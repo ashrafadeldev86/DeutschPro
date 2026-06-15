@@ -49,10 +49,19 @@ interface DBPremiumRequest {
   expiryDate?: string;
 }
 
+interface DBCommunityMessage {
+  id: string;
+  userEmail: string;
+  userName: string;
+  content: string;
+  createdAt: string;
+}
+
 interface DBStructure {
   users: DBUser[];
   requests: DBPremiumRequest[];
   appInstalls?: number;
+  communityMessages?: DBCommunityMessage[];
 }
 
 function hashPassword(password: string): string {
@@ -60,7 +69,7 @@ function hashPassword(password: string): string {
 }
 
 function loadDatabase(): DBStructure {
-  let db: DBStructure = { users: [], requests: [], appInstalls: 1 };
+  let db: DBStructure = { users: [], requests: [], appInstalls: 1, communityMessages: [] };
   if (fs.existsSync(DB_FILE)) {
     try {
       db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
@@ -71,6 +80,10 @@ function loadDatabase(): DBStructure {
 
   if (db.appInstalls === undefined) {
     db.appInstalls = 1;
+  }
+
+  if (!Array.isArray(db.communityMessages)) {
+    db.communityMessages = [];
   }
 
   // Ensure Admin user exists
@@ -643,6 +656,62 @@ async function startServer() {
       res.json({ success: true, appInstalls: db.appInstalls });
     } catch (e) {
       res.status(500).json({ error: "Failed to increment metrics." });
+    }
+  });
+
+  // COMMUNITY CHAT: Fetch recent messages (public room for German learners)
+  app.get("/api/community/messages", async (req, res) => {
+    try {
+      const db = loadDatabase();
+      const messages = (db.communityMessages || []).slice(-150);
+      res.json({ success: true, messages });
+    } catch (e) {
+      res.status(500).json({ error: "حدث خطأ أثناء تحميل رسائل المجتمع." });
+    }
+  });
+
+  // COMMUNITY CHAT: Send a new message to the public room
+  app.post("/api/community/send", async (req, res) => {
+    try {
+      const { email, content } = req.body;
+      if (!email || !content || !content.trim()) {
+        return res.status(400).json({ error: "البريد الإلكتروني والرسالة مطلوبان." });
+      }
+
+      const trimmed = content.trim();
+      if (trimmed.length > 500) {
+        return res.status(400).json({ error: "الرسالة طويلة جداً (الحد الأقصى 500 حرف)." });
+      }
+
+      const emailNormalized = email.toLowerCase().trim();
+      const db = loadDatabase();
+      const user = db.users.find(u => u.email.toLowerCase().trim() === emailNormalized);
+      if (!user) {
+        return res.status(404).json({ error: "المستخدم غير موجود." });
+      }
+
+      const newMessage: DBCommunityMessage = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        userEmail: emailNormalized,
+        userName: user.name,
+        content: trimmed,
+        createdAt: new Date().toISOString(),
+      };
+
+      if (!Array.isArray(db.communityMessages)) db.communityMessages = [];
+      db.communityMessages.push(newMessage);
+
+      // Keep storage bounded to the most recent 500 messages
+      if (db.communityMessages.length > 500) {
+        db.communityMessages = db.communityMessages.slice(-500);
+      }
+
+      user.lastActiveAt = new Date().toISOString();
+      saveDatabase(db);
+
+      res.json({ success: true, message: newMessage });
+    } catch (e) {
+      res.status(500).json({ error: "حدث خطأ أثناء إرسال الرسالة." });
     }
   });
 
