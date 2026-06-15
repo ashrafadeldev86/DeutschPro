@@ -1,6 +1,0 @@
-{
-  "name": "German Spaced Repetition",
-  "description": "An interactive German learning application focused on spaced repetition sentence practice, smart quiz modes, and AI Chatbot assistance using Gemini.",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
