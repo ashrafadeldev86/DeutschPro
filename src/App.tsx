@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Sentence, Tab, UserProfile, Achievement } from "./types";
+import { Sentence, Tab, UserProfile, Achievement, PremiumRequest } from "./types";
 import { 
   getStoredSentences, 
   saveStoredSentences 
@@ -9,7 +9,10 @@ import DailyQuizView from "./components/DailyQuizView";
 import AIChatView from "./components/AIChatView";
 import SpeakingPracticeView from "./components/SpeakingPracticeView";
 import DashboardView from "./components/DashboardView";
-import RegistrationView from "./components/RegistrationView";
+import AuthView from "./components/AuthView";
+import SettingsView from "./components/SettingsView";
+import PremiumUpgradeView from "./components/PremiumUpgradeView";
+import AdminDashboardView from "./components/AdminDashboardView";
 
 import { 
   Sparkles, BookOpen, BrainCircuit, GraduationCap, Award, Calendar, 
@@ -74,6 +77,7 @@ const SYSTEM_ACHIEVEMENT_TEMPLATES: Achievement[] = [
 export default function App() {
   const [sentences, setSentences] = useState<Sentence[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>(Tab.Dashboard);
+  const [premiumRequests, setPremiumRequests] = useState<PremiumRequest[]>([]);
   
   // Profile state managed cleanly
   const [profile, setProfile] = useState<UserProfile>({
@@ -90,6 +94,87 @@ export default function App() {
   const [achievements, setAchievements] = useState<Achievement[]>(SYSTEM_ACHIEVEMENT_TEMPLATES);
   const [newlyUnlockedAchievement, setNewlyUnlockedAchievement] = useState<Achievement | null>(null);
 
+  // Synchronize client progress with server database
+  const syncWithServer = async (userEmail: string, localProfile: UserProfile, currentSentences: Sentence[], currentAchievements: Achievement[]) => {
+    try {
+      const response = await fetch("/api/auth/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: userEmail.toLowerCase().trim(),
+          xp: localProfile.xp,
+          level: localProfile.level,
+          streak: localProfile.streak,
+          sentences: currentSentences,
+          achievements: currentAchievements,
+          correctQuizzesCount: localProfile.correctQuizzesCount || 0,
+          successfulSpeechesCount: localProfile.successfulSpeechesCount || 0,
+          chatTurnsCompleted: localProfile.chatTurnsCompleted || 0,
+          premiumStatus: localProfile.premiumStatus,
+          premiumPlan: localProfile.premiumPlan
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.user) {
+          const mergedProfile: UserProfile = {
+            ...localProfile,
+            name: data.user.name,
+            age: data.user.age,
+            email: data.user.email,
+            xp: data.user.xp,
+            level: data.user.level,
+            streak: data.user.streak,
+            isPremium: data.user.isPremium,
+            premiumStatus: data.user.premiumStatus,
+            premiumPlan: data.user.premiumPlan,
+            premiumExpiry: data.user.premiumExpiry,
+            correctQuizzesCount: data.user.correctQuizzesCount,
+            successfulSpeechesCount: data.user.successfulSpeechesCount,
+            chatTurnsCompleted: data.user.chatTurnsCompleted,
+            registered: true
+          };
+          saveProfileState(mergedProfile);
+
+          if (data.user.sentences) {
+            setSentences(data.user.sentences);
+            if (typeof window !== "undefined") {
+              localStorage.setItem("deutsch_spaced_rep_sentences", JSON.stringify(data.user.sentences));
+            }
+          }
+          if (data.user.achievements && data.user.achievements.length > 0) {
+            setAchievements(data.user.achievements);
+            if (typeof window !== "undefined") {
+              localStorage.setItem("deutsch_spaced_rep_achievements", JSON.stringify(data.user.achievements));
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Muted sync background warn:", err);
+    }
+  };
+
+  // Sync admin requests table for admin user
+  const fetchAdminRequests = async () => {
+    if (profile.email !== "ashrafadelnn666@gmail.com") return;
+    try {
+      const response = await fetch(`/api/admin/requests?adminEmail=${encodeURIComponent(profile.email)}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.requests) {
+          setPremiumRequests(data.requests);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("deutsch_spaced_rep_premium_requests", JSON.stringify(data.requests));
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch admin requests", e);
+    }
+  };
+
   // Load state on mount
   useEffect(() => {
     setSentences(getStoredSentences());
@@ -98,9 +183,13 @@ export default function App() {
       const storedProfile = localStorage.getItem("deutsch_spaced_rep_user_profile");
       const storedAchievements = localStorage.getItem("deutsch_spaced_rep_achievements");
 
+      let loadedProfile: UserProfile | null = null;
+      let loadedAchievements: Achievement[] = SYSTEM_ACHIEVEMENT_TEMPLATES;
+
       if (storedProfile) {
         try {
-          setProfile(JSON.parse(storedProfile));
+          loadedProfile = JSON.parse(storedProfile);
+          if (loadedProfile) setProfile(loadedProfile);
         } catch (e) {
           console.error("Failed to parse stored profile", e);
         }
@@ -108,13 +197,40 @@ export default function App() {
 
       if (storedAchievements) {
         try {
-          setAchievements(JSON.parse(storedAchievements));
+          loadedAchievements = JSON.parse(storedAchievements);
+          setAchievements(loadedAchievements);
         } catch (e) {
           console.error("Failed to parse stored achievements", e);
         }
       }
+
+      // If registered with email, sync with back-end immediately
+      if (loadedProfile && loadedProfile.email) {
+        syncWithServer(loadedProfile.email, loadedProfile, getStoredSentences(), loadedAchievements);
+      }
+
+      // Track installation metric back-end
+      const reported = localStorage.getItem("deutsch_app_installed_reported_2026");
+      if (!reported) {
+        fetch("/api/metrics/install", { method: "POST" })
+          .then((res) => {
+            if (res.ok) {
+              localStorage.setItem("deutsch_app_installed_reported_2026", "true");
+            }
+          })
+          .catch((err) => console.warn("Muted metrics install error:", err));
+      }
     }
   }, []);
+
+  // Sync admin telemetry periodically if admin is logged in
+  useEffect(() => {
+    if (profile.registered && profile.email === "ashrafadelnn666@gmail.com") {
+      fetchAdminRequests();
+      const interval = setInterval(fetchAdminRequests, 7000);
+      return () => clearInterval(interval);
+    }
+  }, [profile.registered, profile.email]);
 
   // Save profile state whenever changes happen
   const saveProfileState = (newProfile: UserProfile) => {
@@ -124,39 +240,210 @@ export default function App() {
     }
   };
 
-  // Onboarding registration
-  const handleRegisterOnboarding = (name: string, age: number, targetLevel: string) => {
+  const handleUpgradeRequestSubmit = async (data: Omit<PremiumRequest, "id" | "userName" | "createdAt" | "status">) => {
+    if (!profile.email) return;
+
+    try {
+      const response = await fetch("/api/premium/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: profile.email,
+          userName: profile.name,
+          planName: data.planName,
+          price: data.price,
+          paymentMethod: data.paymentMethod,
+          paypalAccount: data.paypalAccount,
+          transactionId: data.transactionId,
+          screenshot: data.screenshot
+        })
+      });
+
+      if (response.ok) {
+        const resData = await response.json();
+        if (resData.success) {
+          const updatedRequests = [resData.request, ...premiumRequests];
+          setPremiumRequests(updatedRequests);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("deutsch_spaced_rep_premium_requests", JSON.stringify(updatedRequests));
+          }
+
+          const updatedProfile: UserProfile = {
+            ...profile,
+            premiumStatus: "pending",
+            premiumPlan: data.planName,
+          };
+          saveProfileState(updatedProfile);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to submit upgrade request directly to backend", e);
+    }
+  };
+
+  const handleApproveRequest = async (requestId: string) => {
+    try {
+      const response = await fetch(`/api/admin/requests/${requestId}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminEmail: profile.email })
+      });
+
+      if (response.ok) {
+        // Refresh local requests lists
+        fetchAdminRequests();
+        
+        // Update local requests status safely
+        const updatedRequests = premiumRequests.map(r => {
+          if (r.id === requestId) {
+            return { ...r, status: "approved" as const };
+          }
+          return r;
+        });
+        setPremiumRequests(updatedRequests);
+
+        const target = premiumRequests.find(r => r.id === requestId);
+        if (target && target.userEmail === profile.email) {
+          const updatedProfile: UserProfile = {
+            ...profile,
+            isPremium: true,
+            premiumStatus: "approved",
+            premiumPlan: target.planName,
+          };
+          saveProfileState(updatedProfile);
+        }
+      }
+    } catch (e) {
+      console.error("Approve error:", e);
+    }
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    try {
+      const response = await fetch(`/api/admin/requests/${requestId}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminEmail: profile.email })
+      });
+
+      if (response.ok) {
+        // Refresh requests pool
+        fetchAdminRequests();
+
+        const updatedRequests = premiumRequests.map(r => {
+          if (r.id === requestId) {
+            return { ...r, status: "rejected" as const };
+          }
+          return r;
+        });
+        setPremiumRequests(updatedRequests);
+
+        const target = premiumRequests.find(r => r.id === requestId);
+        if (target && target.userEmail === profile.email) {
+          const updatedProfile: UserProfile = {
+            ...profile,
+            isPremium: false,
+            premiumStatus: "rejected",
+          };
+          saveProfileState(updatedProfile);
+        }
+      }
+    } catch (e) {
+      console.error("Reject error:", e);
+    }
+  };
+
+  const handleToggleUserPremium = (isPremium: boolean) => {
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + 30);
+    
+    const updatedProfile: UserProfile = {
+      ...profile,
+      isPremium,
+      premiumStatus: isPremium ? "approved" : "none",
+      premiumExpiry: isPremium ? expiryDate.toISOString() : undefined,
+      premiumPlan: isPremium ? "الباقة الذهبية للمسؤول 🧪" : undefined,
+    };
+    saveProfileState(updatedProfile);
+  };
+
+  const handleInjectSamplePendingRequest = () => {
+    const plansList = [
+      { name: "الباقة الشهرية (شهر واحد)", price: "60 جنيه", method: "vodafone" as const },
+      { name: "باقة 3 أشهر (المسار المتقدم)", price: "150 جنيه", method: "paypal" as const },
+      { name: "الباقة السنوية (المحترف الطليق)", price: "500 جنيه", method: "vodafone" as const }
+    ];
+    const randomPlan = plansList[Math.floor(Math.random() * plansList.length)];
+    const names = ["أحمد مراد", "سارة الشافعي", "محمود المصري", "ياسمين صبري", "اشرف عادل"];
+    const randomName = names[Math.floor(Math.random() * names.length)];
+
+    const fresh: PremiumRequest = {
+      id: `sample-${Date.now()}`,
+      userName: randomName,
+      planName: randomPlan.name,
+      price: randomPlan.price,
+      paymentMethod: randomPlan.method,
+      paypalAccount: randomPlan.method === "paypal" ? "test-student@paypal.com" : undefined,
+      transactionId: randomPlan.method === "vodafone" ? `VOD-${Math.floor(100000 + Math.random() * 900000)}` : undefined,
+      createdAt: new Date().toISOString(),
+      status: "pending",
+    };
+
+    const updated = [fresh, ...premiumRequests];
+    setPremiumRequests(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("deutsch_spaced_rep_premium_requests", JSON.stringify(updated));
+    }
+  };
+
+  // Onboarding & Account Authentication callback
+  const handleAuthSuccess = (dbUser: any) => {
     const starterProfile: UserProfile = {
-      name,
-      age,
-      email: "",
-      xp: 50, // Starter registration gift!
-      level: 1,
-      streak: 1,
+      name: dbUser.name,
+      age: dbUser.age,
+      email: dbUser.email,
+      xp: dbUser.xp,
+      level: dbUser.level,
+      streak: dbUser.streak,
       registered: true,
-      theme: "dark"
+      theme: profile.theme,
+      isPremium: dbUser.isPremium,
+      premiumStatus: dbUser.premiumStatus,
+      premiumPlan: dbUser.premiumPlan,
+      premiumExpiry: dbUser.premiumExpiry,
+      correctQuizzesCount: dbUser.correctQuizzesCount || 0,
+      successfulSpeechesCount: dbUser.successfulSpeechesCount || 0,
+      chatTurnsCompleted: dbUser.chatTurnsCompleted || 0,
     };
 
     saveProfileState(starterProfile);
+    
+    if (dbUser.sentences) {
+      setSentences(dbUser.sentences);
+      saveStoredSentences(dbUser.sentences);
+    }
+    if (dbUser.achievements && dbUser.achievements.length > 0) {
+      setAchievements(dbUser.achievements);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("deutsch_spaced_rep_achievements", JSON.stringify(dbUser.achievements));
+      }
+    }
+
     setActiveTab(Tab.Dashboard);
 
-    // Force run check for first achievement if anything matches
-    evaluateAchievements(starterProfile, sentences, achievements);
+    // Run first evaluation check
+    evaluateAchievements(starterProfile, dbUser.sentences || [], dbUser.achievements || achievements);
   };
 
   // Master award XP and statistics updater
   const handleAwardXp = (xpAwarded: number, srcType: "speaking_sentences" | "sentences" | "correct_quizzes" | "chat_turns") => {
-    // 1. Calculate next stats
     const nextXp = profile.xp + xpAwarded;
-    
-    // Each level requires 200 XP points
     const nextLevel = Math.floor(nextXp / 200) + 1;
     
     const updatedProfile: UserProfile = { ...profile };
     updatedProfile.xp = nextXp;
     updatedProfile.level = nextLevel;
 
-    // Increment statistics based on source type
     if (srcType === "correct_quizzes") {
       updatedProfile.correctQuizzesCount = (profile.correctQuizzesCount || 0) + 1;
     } else if (srcType === "speaking_sentences") {
@@ -165,13 +452,17 @@ export default function App() {
       updatedProfile.chatTurnsCompleted = (profile.chatTurnsCompleted || 0) + 1;
     }
 
-    // Increase streak dynamically sometimes to make user feel happy
     if (Math.random() > 0.7) {
       updatedProfile.streak = profile.streak + 1;
     }
 
     saveProfileState(updatedProfile);
     evaluateAchievements(updatedProfile, sentences, achievements);
+
+    // Sync state
+    if (profile.email) {
+      syncWithServer(profile.email, updatedProfile, sentences, achievements);
+    }
   };
 
   // Evaluate and check milestones
@@ -218,7 +509,6 @@ export default function App() {
       }
     }
 
-    // Award bonus XP on unlock and trigger overlay celebration!
     if (newlyUnlocked) {
       setNewlyUnlockedAchievement(newlyUnlocked);
       
@@ -232,6 +522,14 @@ export default function App() {
       };
       
       saveProfileState(finalizedProfile);
+
+      if (profile.email) {
+        syncWithServer(profile.email, finalizedProfile, currentSentences, updated);
+      }
+    } else {
+      if (profile.email) {
+        syncWithServer(profile.email, currentProfile, currentSentences, updated);
+      }
     }
   };
 
@@ -248,7 +546,6 @@ export default function App() {
     setSentences(updated);
     saveStoredSentences(updated);
 
-    // Evaluate first sentence addition achievement
     evaluateAchievements(profile, updated, achievements);
   };
 
@@ -257,6 +554,10 @@ export default function App() {
       const updated = sentences.filter((s) => s.id !== id);
       setSentences(updated);
       saveStoredSentences(updated);
+
+      if (profile.email) {
+        syncWithServer(profile.email, profile, updated, achievements);
+      }
     }
   };
 
@@ -266,6 +567,10 @@ export default function App() {
     );
     setSentences(updated);
     saveStoredSentences(updated);
+
+    if (profile.email) {
+      syncWithServer(profile.email, profile, updated, achievements);
+    }
   };
 
   // Toggle Theme
@@ -286,9 +591,78 @@ export default function App() {
     (sentences.reduce((sum, current) => sum + (current.level > 0 ? 1 : 0), 0) / (sentenceCount || 1)) * 100
   );
 
-  // If not registered yet, display onboarding registration page immediately
-  if (!profile.registered) {
-    return <RegistrationView onRegister={handleRegisterOnboarding} />;
+  // Settings action helpers
+  const handleUpdateProfile = async (name: string, age: number, targetLevel: string) => {
+    try {
+      const response = await fetch("/api/auth/update-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: profile.email, name, age, targetLevel })
+      });
+      const data = await response.json();
+      if (!response.ok) return { success: false, error: data.error };
+      
+      const updatedProfile = {
+        ...profile,
+        name: data.user.name,
+        age: data.user.age,
+        targetLevel: data.user.targetLevel
+      };
+      saveProfileState(updatedProfile);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || "حدث خطأ غير متوقع." };
+    }
+  };
+
+  const handleChangePassword = async (oldPass: string, newPass: string) => {
+    try {
+      const response = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: profile.email, oldPassword: oldPass, newPassword: newPass })
+      });
+      const data = await response.json();
+      if (!response.ok) return { success: false, error: data.error };
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || "فشل تغيير كلمة المرور." };
+    }
+  };
+
+  const handleLogout = () => {
+    if (confirm("هل تريد بالتأكيد تسجيل الخروج وتأمين الجلسة؟")) {
+      const resetProfile: UserProfile = {
+        name: "",
+        age: 24,
+        email: "",
+        xp: 0,
+        level: 1,
+        streak: 1,
+        registered: false,
+        theme: profile.theme
+      };
+      saveProfileState(resetProfile);
+      setSentences([]);
+      setAchievements(SYSTEM_ACHIEVEMENT_TEMPLATES);
+      setActiveTab(Tab.Dashboard);
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("deutsch_spaced_rep_user_profile");
+        localStorage.removeItem("deutsch_spaced_rep_achievements");
+        localStorage.removeItem("deutsch_spaced_rep_premium_requests");
+        localStorage.removeItem("deutsch_spaced_rep_sentences");
+      }
+    }
+  };
+
+  // If not registered or logged in, display AuthView immediately
+  if (!profile.registered || !profile.email) {
+    return (
+      <AuthView
+        onLoginSuccess={handleAuthSuccess}
+        onSignupSuccess={handleAuthSuccess}
+      />
+    );
   }
 
   // Choose styling classes based on Light/Dark active themes
@@ -301,6 +675,19 @@ export default function App() {
     : "bg-white border-slate-200 shadow-[0_2px_15px_rgba(0,0,0,0.05)]";
   const sidebarHeaderClass = isDark ? "text-white" : "text-slate-900";
   const menuInactiveTextClass = isDark ? "text-[#94a3b8] hover:text-white" : "text-slate-500 hover:text-slate-950";
+
+  // Hide admin tab dynamically for non-admin accounts to ensure lock security
+  const isAdmin = profile.email.toLowerCase().trim() === "ashrafadelnn666@gmail.com";
+  const navigationItems = [
+    { id: Tab.Dashboard, label: "الرئيسية 📈" },
+    { id: Tab.AddSentence, label: "المخزن 📖" },
+    { id: Tab.DailyQuiz, label: "الاختبار 🧩" },
+    { id: Tab.SpeakingPractice, label: "التحدث 🎙️" },
+    { id: Tab.AIChat, label: "الدردشة 💬" },
+    { id: Tab.Premium, label: "الترقية 👑" },
+    ...(isAdmin ? [{ id: Tab.Admin, label: "الإدارة 🛠️" }] : []),
+    { id: Tab.Settings, label: "الإعدادات ⚙️" }
+  ];
 
   return (
     <div className={`min-h-screen ${bgThemeClass} font-sans antialiased relative overflow-x-hidden selection:bg-blue-600/30 selection:text-white transition-colors duration-300`}>
@@ -354,14 +741,8 @@ export default function App() {
                 </button>
 
                 {/* Navigation Tabs */}
-                <nav className={`flex gap-1 bg-slate-950/20 p-1 rounded-2xl border ${isDark ? "border-white/5 bg-slate-950/40" : "border-slate-200 bg-slate-100"}`} dir="rtl">
-                  {[
-                    { id: Tab.Dashboard, label: "الرئيسية 📈" },
-                    { id: Tab.AddSentence, label: "المخزن 📖" },
-                    { id: Tab.DailyQuiz, label: "الاختبار 🧩" },
-                    { id: Tab.SpeakingPractice, label: "التحدث 🎙️" },
-                    { id: Tab.AIChat, label: "الدردشة 💬" }
-                  ].map((menuItem) => (
+                <nav className={`flex gap-1 bg-slate-950/20 p-1 rounded-2xl border flex-wrap justify-center ${isDark ? "border-white/5 bg-slate-950/40" : "border-slate-200 bg-slate-100"}`} dir="rtl">
+                  {navigationItems.map((menuItem) => (
                     <button
                       key={menuItem.id}
                       onClick={() => setActiveTab(menuItem.id as Tab)}
@@ -424,6 +805,34 @@ export default function App() {
                     <AIChatView 
                       sentences={sentences} 
                       onAwardXp={handleAwardXp}
+                    />
+                  )}
+
+                  {activeTab === Tab.Premium && (
+                    <PremiumUpgradeView
+                      profile={profile}
+                      onSubmitUpgradeRequest={handleUpgradeRequestSubmit}
+                    />
+                  )}
+
+                  {isAdmin && activeTab === Tab.Admin && (
+                    <AdminDashboardView
+                      profile={profile}
+                      requests={premiumRequests}
+                      onApproveRequest={handleApproveRequest}
+                      onRejectRequest={handleRejectRequest}
+                      onToggleUserPremiumStatus={handleToggleUserPremium}
+                      onInjectSamplePendingRequest={handleInjectSamplePendingRequest}
+                    />
+                  )}
+
+                  {activeTab === Tab.Settings && (
+                    <SettingsView
+                      profile={profile}
+                      onUpdateProfile={handleUpdateProfile}
+                      onChangePassword={handleChangePassword}
+                      onLogout={handleLogout}
+                      onNavigateToPremium={() => setActiveTab(Tab.Premium)}
                     />
                   )}
                 </motion.div>

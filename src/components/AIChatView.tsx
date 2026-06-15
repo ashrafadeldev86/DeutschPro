@@ -30,8 +30,17 @@ export default function AIChatView({ sentences, onAwardXp }: AIChatViewProps) {
   const [initLoading, setInitLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [dictationStatus, setDictationStatus] = useState<"" | "recording" | "processing" | "success">("");
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clean timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    };
+  }, []);
 
   // Load chat history on mount
   useEffect(() => {
@@ -68,6 +77,14 @@ export default function AIChatView({ sentences, onAwardXp }: AIChatViewProps) {
     }
   };
 
+  const resetSilenceTimer = () => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = setTimeout(() => {
+      console.log("Auto-stopping recording due to 5 seconds of silence");
+      stopVoiceDictation();
+    }, 5000);
+  };
+
   const startVoiceDictation = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -78,25 +95,67 @@ export default function AIChatView({ sentences, onAwardXp }: AIChatViewProps) {
     try {
       const rec = new SpeechRecognition();
       rec.lang = "de-DE";
+      rec.continuous = false; // Stop when the user finishes speaking
       rec.interimResults = false;
       rec.maxAlternatives = 1;
 
       rec.onstart = () => {
         setIsListening(true);
+        setDictationStatus("recording");
+        setErrorMessage("");
+        resetSilenceTimer();
+      };
+
+      rec.onspeechstart = () => {
+        resetSilenceTimer();
+      };
+
+      rec.onsoundstart = () => {
+        resetSilenceTimer();
       };
 
       rec.onresult = (e: any) => {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         const text = e.results[0][0].transcript;
-        setUserInput(prev => prev + (prev ? " " : "") + text);
+        if (text && text.trim()) {
+          setDictationStatus("success");
+          
+          // Show the transcript in input temporarily
+          setUserInput(text);
+          
+          // Clear status after some duration
+          setTimeout(() => {
+            setDictationStatus("");
+          }, 2000);
+
+          // Direct auto submission of voice input as requested!
+          setTimeout(() => {
+            handleSendMessage(undefined, text);
+          }, 500);
+        }
       };
 
       rec.onerror = (err: any) => {
         console.error("Dictation recognition error:", err);
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        
+        if (err.error === "no-speech") {
+          setErrorMessage("لم يتم اكتشاف رنين صوتي أو كلام بالألمانية.");
+        } else if (err.error === "not-allowed") {
+          setErrorMessage("صلاحية الميكروفون مرفوضة بالمتصفح!");
+        } else {
+          setErrorMessage(`عذراً، حدث خطأ في التسجيل: ${err.error}`);
+        }
+        
         setIsListening(false);
+        setDictationStatus("");
       };
 
       rec.onend = () => {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         setIsListening(false);
+        // Do not reset dictationStatus if it is "success" so the user can see green feedback
+        setDictationStatus((prev) => (prev === "success" ? "success" : ""));
       };
 
       recognitionRef.current = rec;
@@ -104,11 +163,14 @@ export default function AIChatView({ sentences, onAwardXp }: AIChatViewProps) {
     } catch (e) {
       console.error(e);
       setIsListening(false);
+      setDictationStatus("");
     }
   };
 
   const stopVoiceDictation = () => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (recognitionRef.current) {
+      setDictationStatus("processing");
       recognitionRef.current.stop();
       setIsListening(false);
     }
@@ -153,17 +215,17 @@ export default function AIChatView({ sentences, onAwardXp }: AIChatViewProps) {
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userInput.trim() || isLoading) return;
+  const handleSendMessage = async (e?: React.FormEvent, directText?: string) => {
+    if (e) e.preventDefault();
+    const textToSend = directText ? directText.trim() : userInput.trim();
+    if (!textToSend || isLoading) return;
 
-    const userMessageText = userInput.trim();
-    setUserInput("");
+    if (!directText) setUserInput("");
     setErrorMessage("");
 
     const updatedMessages: ChatMessage[] = [
       ...messages,
-      { role: "user", content: userMessageText }
+      { role: "user", content: textToSend }
     ];
 
     setMessages(updatedMessages);
@@ -423,8 +485,43 @@ export default function AIChatView({ sentences, onAwardXp }: AIChatViewProps) {
             </div>
           )}
 
+          {/* Dictation Status Indicator Badge */}
+          {dictationStatus && (
+            <div className="mb-3">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  className={`p-3 rounded-xl border flex items-center gap-2.5 text-xs font-semibold ${
+                    dictationStatus === "recording"
+                      ? "bg-red-950/40 border-red-900/40 text-red-350 animate-pulse"
+                      : dictationStatus === "processing"
+                      ? "bg-yellow-950/40 border-yellow-905/40 text-yellow-300"
+                      : "bg-emerald-950/50 border-emerald-900/40 text-emerald-300"
+                  }`}
+                >
+                  <span className="flex h-2.5 w-2.5 relative">
+                    {dictationStatus === "recording" && (
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    )}
+                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                      dictationStatus === "recording" ? "bg-red-500" : dictationStatus === "processing" ? "bg-yellow-500" : "bg-emerald-500"
+                    }`}></span>
+                  </span>
+                  
+                  <span>
+                    {dictationStatus === "recording" && "🎤 جاري التسجيل بالألمانية... تحدث الآن بوضوح (التسجيل سينتهي تلقائياً عند صمتك أو بعد 5 ثوانٍ)"}
+                    {dictationStatus === "processing" && "⏳ جاري المعالجة وتحويل الصوت إلى نص ألماني..."}
+                    {dictationStatus === "success" && "✅ تم التسجيل بنجاح! جاري الإرسال مباشرة للمعلم الذكي الـ AI..."}
+                  </span>
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          )}
+
           {/* Message input elements with built-in voice dictionary */}
-          <form onSubmit={handleSendMessage} className="mt-auto pt-4 border-t border-blue-950/60 flex items-center gap-2.5 shrink-0">
+          <form onSubmit={(e) => handleSendMessage(e)} className="mt-auto pt-4 border-t border-blue-950/60 flex items-center gap-2.5 shrink-0">
             
             {/* Dictation triggers */}
             <button

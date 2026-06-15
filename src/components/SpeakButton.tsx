@@ -9,14 +9,18 @@ interface SpeakButtonProps {
 
 export default function SpeakButton({ text, className = "" }: SpeakButtonProps) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState<number>(1.0);
+  const [speed, setSpeed] = useState<number>(0.75);
   const [gender, setGender] = useState<"female" | "male">("female");
   const [showOptions, setShowOptions] = useState(false);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     return () => {
       if (typeof window !== "undefined" && window.speechSynthesis) {
         window.speechSynthesis.cancel();
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
       }
     };
   }, []);
@@ -24,14 +28,45 @@ export default function SpeakButton({ text, className = "" }: SpeakButtonProps) 
   const handleSpeak = (e: React.MouseEvent) => {
     e.stopPropagation();
     
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      alert("عذراً، متصفحك لا يدعم خاصية نطق النصوص الصوتية (Text-to-Speech).");
+    const hasSpeechSynthesis = typeof window !== "undefined" && window.speechSynthesis;
+
+    if (isPlaying) {
+      if (hasSpeechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setIsPlaying(false);
       return;
     }
 
-    if (isPlaying) {
-      window.speechSynthesis.cancel();
-      setIsPlaying(false);
+    if (!hasSpeechSynthesis) {
+      // Fallback for Median.co and mobile webview wrappers lacking standard SpeechSynthesis API.
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+
+      const audioUrl = `/api/tts?q=${encodeURIComponent(text)}&tl=de`;
+      const audio = new Audio(audioUrl);
+      audio.playbackRate = 0.75;
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        setIsPlaying(false);
+      };
+
+      audio.onerror = () => {
+        setIsPlaying(false);
+      };
+
+      setIsPlaying(true);
+      
+      // Attempt play, handling auto-play policy constraints
+      audio.play().catch((err) => {
+        console.error("Audio playback failed:", err);
+        setIsPlaying(false);
+      });
       return;
     }
 
@@ -125,28 +160,9 @@ export default function SpeakButton({ text, className = "" }: SpeakButtonProps) 
                 setShowOptions(false);
               }}
             />
-            <div className="absolute top-9 left-0 z-20 w-44 p-3 rounded-xl bg-slate-950 border border-slate-850 shadow-2xl space-y-2.5 text-right text-[11px]" onClick={(e) => e.stopPropagation()}>
+            <div className="absolute top-9 left-0 z-20 w-36 p-3 rounded-xl bg-slate-950 border border-slate-850 shadow-2xl space-y-2.5 text-right text-[10px]" onClick={(e) => e.stopPropagation()}>
               <div>
-                <span className="text-slate-500 font-bold block mb-1.5">سرعة النطق والتكرار:</span>
-                <div className="grid grid-cols-3 gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-center font-sans font-bold">
-                  {[0.7, 1.0, 1.3].map((val) => (
-                    <button
-                      key={val}
-                      onClick={() => setSpeed(val)}
-                      className={`py-1 rounded-md transition-all cursor-pointer ${
-                        speed === val 
-                          ? "bg-blue-600 text-white" 
-                          : "text-slate-400 hover:text-white"
-                      }`}
-                    >
-                      {val}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <span className="text-slate-500 font-bold block mb-1.5">نوع المعلم الصوتي:</span>
+                <span className="text-slate-500 font-bold block mb-1">نوع المعلم الصوتي:</span>
                 <div className="grid grid-cols-2 gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-center">
                   <button
                     onClick={() => setGender("female")}

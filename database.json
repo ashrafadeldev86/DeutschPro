@@ -1,0 +1,27 @@
+{
+  "users": [
+    {
+      "id": "admin-user-id",
+      "name": "كوتش أشرف عادل (المدير والمسؤول العام)",
+      "email": "ashrafadelnn666@gmail.com",
+      "passwordHash": "524062723b25c8ecce969c28618c755779da8885a3fa18b480d54a877d4a7c5e",
+      "age": 22,
+      "targetLevel": "C2",
+      "isPremium": true,
+      "premiumStatus": "approved",
+      "premiumPlan": "باقة المدير الكاملة اللانهائية ♛",
+      "xp": 1500,
+      "level": 10,
+      "streak": 100,
+      "sentences": [],
+      "achievements": [],
+      "correctQuizzesCount": 20,
+      "successfulSpeechesCount": 30,
+      "chatTurnsCompleted": 50,
+      "createdAt": "2026-06-15T05:41:02.582Z",
+      "lastActiveAt": "2026-06-15T06:47:28.134Z"
+    }
+  ],
+  "requests": [],
+  "appInstalls": 1
+}

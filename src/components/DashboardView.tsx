@@ -48,10 +48,10 @@ export default function DashboardView({ profile, achievements, sentences, onNavi
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
           <div className="space-y-2 text-center md:text-right">
             <span className="text-xs font-bold text-cyan-400 tracking-wider uppercase bg-cyan-950/40 px-3 py-1 rounded-full border border-cyan-900/30 inline-block">
-              الملف التعلمي المخصص 💻
+              الملف التعلمي المخصص
             </span>
             <h2 className="text-2xl md:text-3xl font-black text-white">
-              مرحباً بك مجدداً يا <span className="text-blue-400">{profile.name}</span>! 👋
+              مرحباً بك مجدداً يا <span className="text-blue-400">{profile.name}</span>!
             </h2>
             <p className="text-slate-400 text-xs max-w-xl leading-relaxed">
               عمرك المسجل هو {profile.age} عاماً. يسير نظامك التعليمي اليومي على مستواك الفعلي من التكرار وجلسات التدقيق التلقائي للأخطاء، لضمان أعلى فاعلية تذكر.
@@ -64,7 +64,7 @@ export default function DashboardView({ profile, achievements, sentences, onNavi
             </div>
             <div>
               <span className="text-[10px] text-slate-500 font-extrabold block">المستوى الحالي (Level)</span>
-              <span className="text-base font-black text-white">خبير دويتش برو 🇩🇪</span>
+              <span className="text-base font-black text-white">خبير دويتش برو</span>
               <div className="w-32 bg-slate-950 rounded-full h-1.5 mt-1.5 overflow-hidden border border-white/5">
                 <div 
                   className="bg-yellow-500 h-full rounded-full" 
@@ -92,7 +92,7 @@ export default function DashboardView({ profile, achievements, sentences, onNavi
           <span className="text-xs text-slate-500 font-bold block mb-1">السلسلة المستمرة:</span>
           <div className="flex items-baseline gap-1 mt-1">
             <span className="text-3xl font-black text-rose-500">{profile.streak}</span>
-            <span className="text-xs text-rose-450 block">يوم 🔥</span>
+            <span className="text-xs text-rose-450 block">يوم</span>
           </div>
         </div>
 
@@ -100,7 +100,7 @@ export default function DashboardView({ profile, achievements, sentences, onNavi
           <span className="text-xs text-slate-500 font-bold block mb-1">الجمل المخزنة:</span>
           <div className="flex items-baseline gap-1 mt-1">
             <span className="text-3xl font-black text-blue-500">{sentenceCount}</span>
-            <span className="text-xs text-slate-500">جملة 📖</span>
+            <span className="text-xs text-slate-500">جملة</span>
           </div>
         </div>
 
@@ -187,7 +187,7 @@ export default function DashboardView({ profile, achievements, sentences, onNavi
             </div>
           ) : (
             <div className="mt-6 p-3 rounded-xl bg-emerald-950/20 border border-emerald-900/30 text-center text-xs text-emerald-400">
-              أنت متميز للغاية! لقد راجعت كل جملك المتأخرة بالكامل اليوم! ✨
+              أنت متميز للغاية! لقد راجعت كل جملك المتأخرة بالكامل اليوم!
             </div>
           )}
         </div>

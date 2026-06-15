@@ -35,8 +35,10 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [analysis, setAnalysis] = useState<PronunciationAnalysis | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [dictationStatus, setDictationStatus] = useState<"recording" | "processing" | "success" | "">("");
   
   const recognitionRef = useRef<any>(null);
+  const silenceTimerRef = useRef<any>(null);
 
   useEffect(() => {
     selectRandomSentence();
@@ -48,13 +50,25 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
       if (recognitionRef.current) {
         recognitionRef.current.abort();
       }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
     };
   }, []);
+
+  const resetSilenceTimer = () => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = setTimeout(() => {
+      console.log("Auto-stopping speaking practice recording due to silence");
+      stopSpeechRecognition();
+    }, 5000);
+  };
 
   const selectRandomSentence = () => {
     setTranscribed("");
     setAnalysis(null);
     setErrorMessage("");
+    setDictationStatus("");
     
     if (sentences && sentences.length > 0) {
       const idx = Math.floor(Math.random() * sentences.length);
@@ -62,6 +76,36 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
     } else {
       const idx = Math.floor(Math.random() * FALLBACK_PRACTICE.length);
       setActiveSentence(FALLBACK_PRACTICE[idx]);
+    }
+  };
+
+  const handleRetrySentence = () => {
+    setTranscribed("");
+    setAnalysis(null);
+    setErrorMessage("");
+    setDictationStatus("");
+  };
+
+  const speakWord = (word: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (typeof window !== "undefined") {
+      if (window.speechSynthesis) {
+        const utter = new SpeechSynthesisUtterance(word);
+        utter.lang = "de-DE";
+        utter.rate = 0.75;
+        const voices = window.speechSynthesis.getVoices();
+        const deVoice = voices.find(v => v.lang.startsWith("de"));
+        if (deVoice) {
+          utter.voice = deVoice;
+        }
+        window.speechSynthesis.speak(utter);
+      } else {
+        // Fallback for Webview wrappers like Median.co
+        const audioUrl = `/api/tts?q=${encodeURIComponent(word)}&tl=de`;
+        const audio = new Audio(audioUrl);
+        audio.playbackRate = 0.75;
+        audio.play().catch((err) => console.error("Fallback TTS play failed:", err));
+      }
     }
   };
 
@@ -79,31 +123,48 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
     try {
       const rec = new SpeechRecognition();
       rec.lang = "de-DE";
+      rec.continuous = false;
       rec.interimResults = false;
       rec.maxAlternatives = 1;
 
       rec.onstart = () => {
         setIsRecording(true);
+        setDictationStatus("recording");
+        resetSilenceTimer();
+      };
+
+      rec.onspeechstart = () => {
+        resetSilenceTimer();
+      };
+
+      rec.onsoundstart = () => {
+        resetSilenceTimer();
       };
 
       rec.onresult = (event: any) => {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         const transcript = event.results[0][0].transcript;
+        setDictationStatus("success");
         setTranscribed(transcript);
         evaluatePronunciation(transcript);
       };
 
       rec.onerror = (e: any) => {
         console.error("Speech Recognition Error:", e);
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         if (e.error === "not-allowed") {
           setErrorMessage("تم رفض الإذن بالوصول للميكروفون في المتصفح! يرجى إعطاء الصلاحية.");
         } else {
           setErrorMessage(`حدث خطأ أثناء التعرف على الصوت: ${e.error}`);
         }
         setIsRecording(false);
+        setDictationStatus("");
       };
 
       rec.onend = () => {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         setIsRecording(false);
+        setDictationStatus((prev) => (prev === "success" ? "success" : ""));
       };
 
       recognitionRef.current = rec;
@@ -115,6 +176,7 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
   };
 
   const stopSpeechRecognition = () => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       setIsRecording(false);
@@ -124,6 +186,7 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
   const evaluatePronunciation = async (speechText: string) => {
     setIsEvaluating(true);
     setErrorMessage("");
+    setDictationStatus("processing");
 
     try {
       const storedKey = localStorage.getItem("deutsch_spaced_rep_api_key_override") || "";
@@ -157,6 +220,7 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
       setErrorMessage(err?.message || "حدث خطأ غير متوقع أثناء مراجعة النطق الذكية.");
     } finally {
       setIsEvaluating(false);
+      setDictationStatus("");
     }
   };
 
@@ -186,13 +250,24 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
 
           <div className="flex items-center justify-between">
             <span className="text-[10px] tracking-wider uppercase font-extrabold text-slate-500">الجملة المستهدفة للتدريب:</span>
-            <button
-              onClick={selectRandomSentence}
-              className="text-xs text-cyan-400 font-bold hover:text-cyan-300 flex items-center gap-1.5 transition-all cursor-pointer border border-cyan-950 px-2.5 py-1 rounded-lg hover:bg-cyan-950/40"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              تغيير الجملة
-            </button>
+            <div className="flex items-center gap-2">
+              {(analysis || transcribed) && (
+                <button
+                  onClick={handleRetrySentence}
+                  className="text-xs text-rose-400 font-bold hover:text-rose-350 flex items-center gap-1.5 transition-all cursor-pointer border border-rose-950 px-2.5 py-1 rounded-lg hover:bg-rose-950/40"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  إعادة المحاولة 🔄
+                </button>
+              )}
+              <button
+                onClick={selectRandomSentence}
+                className="text-xs text-cyan-400 font-bold hover:text-cyan-300 flex items-center gap-1.5 transition-all cursor-pointer border border-cyan-950 px-2.5 py-1 rounded-lg hover:bg-cyan-950/40"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                تغيير الجملة
+              </button>
+            </div>
           </div>
 
           {/* Glowing Target Text Display */}
@@ -243,9 +318,46 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
                 {isRecording ? "مستمر بالتسجيل الآن... تحدث بالألمانية..." : "اضغط على الميكروفون لبدء التحدث بالنطق"}
               </span>
               <span className="text-[10px] text-slate-500 block">
-                {isRecording ? "اضغط مرة أخرى لإيقاف الميكرفون والمقارنة" : deVoicesConfigured() ? "النطق المدعوم: اللغة الألمانية الأهلية 🇩🇪" : "يرجى القراءة بوضوح وبصوت معتدل."}
+                {isRecording ? "اضغط مرة أخرى لإيقاف الميكرفون والمقارنة" : deVoicesConfigured() ? "النطق المدعوم: اللغة الألمانية الأهلية" : "يرجى القراءة بوضوح وبصوت معتدل."}
               </span>
             </div>
+
+            {/* Active recording state identical to AIChatView */}
+            {(isRecording || dictationStatus || errorMessage) && (
+              <div className="w-full max-w-md mx-auto pt-2">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={dictationStatus || errorMessage || "idle"}
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    className={`p-3 rounded-xl border flex items-center justify-center gap-3 text-xs text-right w-full ${
+                      errorMessage 
+                        ? "bg-red-950/30 border-red-900/40 text-red-300" 
+                        : dictationStatus === "processing" 
+                        ? "bg-yellow-950/40 border-yellow-905/40 text-yellow-300"
+                        : "bg-emerald-950/50 border-emerald-900/40 text-emerald-300"
+                    }`}
+                  >
+                    <span className="flex h-2 w-2 relative shrink-0">
+                      {dictationStatus === "recording" && (
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-450 opacity-75"></span>
+                      )}
+                      <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                        dictationStatus === "recording" ? "bg-red-500" : dictationStatus === "processing" ? "bg-yellow-500" : "bg-emerald-500"
+                      }`}></span>
+                    </span>
+                    
+                    <span className="font-sans font-medium text-slate-200">
+                      {dictationStatus === "recording" && "جاري التسجيل بالألمانية... تحدث الآن بوضوح (التسجيل ينتهي تلقائياً عند صمتك أو بعد 5 ثوانٍ)"}
+                      {dictationStatus === "processing" && "جاري معالجة وتحليل النطق بالذكاء الاصطناعي المتقدم..."}
+                      {dictationStatus === "success" && "تم الالتقاط بنجاح! جاري معالجة النطق ومقارنته بالجملة النموذجية..."}
+                      {errorMessage && errorMessage}
+                    </span>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            )}
           </div>
 
           {/* Transcribed User Text Display */}
@@ -321,7 +433,7 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
                       return (
                         <div
                           key={index}
-                          className={`px-3 py-1.5 rounded-xl border flex flex-col items-center gap-0.5 text-center transition-all group relative ${
+                          className={`px-3 py-1.5 rounded-xl border flex flex-row items-center gap-2 text-center transition-all group relative ${
                             isCorrect 
                               ? "bg-emerald-900/20 border-emerald-900 text-emerald-350" 
                               : isMissing
@@ -329,10 +441,22 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
                               : "bg-red-950/40 border-red-900 text-rose-300"
                           }`}
                         >
-                          <span className="text-xs font-sans font-bold">{token.word}</span>
-                          <span className="text-[8px] tracking-wider font-semibold opacity-75">
-                            {isCorrect ? "✔ صحيح" : isMissing ? "❌ غائب" : "✖ ركيك"}
-                          </span>
+                          <div className="flex flex-col items-center">
+                            <span className="text-xs font-sans font-bold">{token.word}</span>
+                            <span className="text-[8px] tracking-wider font-semibold opacity-75">
+                              {isCorrect ? "✔ صحيح" : isMissing ? "❌ غائب" : "✖ ركيك"}
+                            </span>
+                          </div>
+
+                          {!isCorrect && (
+                            <button
+                              onClick={(e) => speakWord(token.word, e)}
+                              className="p-1 hover:bg-slate-900/80 rounded text-cyan-400 hover:text-cyan-350 transition-colors"
+                              title="استمع إلى اللفظ الصحيح لهذه الكلمة المنفردة 🔊"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
 
                           {token.suggestion && (
                             <span className="hidden group-hover:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 px-2 py-1 bg-slate-950 border border-slate-800 text-[9px] text-cyan-300 whitespace-nowrap rounded shadow-lg z-20">
@@ -361,6 +485,23 @@ export default function SpeakingPracticeView({ sentences, onAwardXp }: SpeakingP
                     <span className="text-cyan-400 font-extrabold">+35 XP نقاط خبرة تم إضافتها بنجاح! 🥇</span>
                   </div>
                 )}
+
+                {/* Retry / Next Actions bar */}
+                <div className="flex flex-col sm:flex-row items-center gap-3 pt-2 w-full">
+                  <button
+                    onClick={handleRetrySentence}
+                    className="w-full sm:w-1/2 px-5 py-3 bg-slate-950 text-rose-300 border border-rose-900/40 hover:bg-red-950/25 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <RefreshCw className="w-4 h-4 text-rose-450" />
+                    <span>إعادة محاولة اللفظ 🔄</span>
+                  </button>
+                  <button
+                    onClick={selectRandomSentence}
+                    className="w-full sm:w-1/2 px-5 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_4px_12px_rgba(6,182,212,0.3)]"
+                  >
+                    <span>الجملة التالية ⏭️</span>
+                  </button>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

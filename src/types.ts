@@ -19,6 +19,9 @@ export enum Tab {
   AIChat = "ai_chat",
   SpeakingPractice = "speaking_practice",
   Dashboard = "dashboard",
+  Premium = "premium",
+  Admin = "admin",
+  Settings = "settings",
 }
 
 export interface UserProfile {
@@ -33,6 +36,25 @@ export interface UserProfile {
   correctQuizzesCount?: number;
   successfulSpeechesCount?: number;
   chatTurnsCompleted?: number;
+  isPremium?: boolean;
+  premiumExpiry?: string;
+  premiumStatus?: "pending" | "approved" | "rejected" | "none";
+  premiumPlan?: string;
+  targetLevel?: string;
+}
+
+export interface PremiumRequest {
+  id: string;
+  userName: string;
+  planName: string;
+  price: string;
+  paymentMethod: "vodafone" | "paypal";
+  paypalAccount?: string;
+  transactionId?: string;
+  screenshot?: string; // base64 string
+  status: "pending" | "approved" | "rejected";
+  createdAt: string;
+  expiryDate?: string;
 }
 
 export interface Achievement {
