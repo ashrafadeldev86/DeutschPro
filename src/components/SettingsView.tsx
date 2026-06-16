@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { UserProfile } from "../types";
-import { User, KeyRound, Mail, Gift, BadgeAlert, Sparkles, Send, CheckCircle2, ChevronRight, LogOut, ShieldCheck, Heart } from "lucide-react";
+import { User, KeyRound, Mail, BadgeAlert, Sparkles, Send, CheckCircle2, ChevronRight, LogOut, ShieldCheck } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface SettingsViewProps {
@@ -23,7 +23,7 @@ export default function SettingsView({
   // Edit Profile States
   const [editName, setEditName] = useState(profile.name);
   const [editAge, setEditAge] = useState<number | "">(profile.age);
-  const [editLevel, setEditLevel] = useState(profile.targetLevel);
+  const [editLevel, setEditLevel] = useState(profile.targetLevel || "A1");
 
   // Change Password States
   const [oldPassword, setOldPassword] = useState("");
@@ -126,7 +126,7 @@ export default function SettingsView({
 
         <button
           onClick={onLogout}
-          className="px-4 py-2.5 bg-red-950/20 hover:bg-rose-950/60 border border-red-900/30 text-rose-300 hover:text-white rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5"
+          className="px-4 py-2.5 bg-red-950/20 hover:bg-rose-950/60 border border-red-900/30 text-rose-300 hover:text-white rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
         >
           <LogOut className="w-4 h-4" />
           <span>تسجيل الخروج 🚪</span>
@@ -194,7 +194,7 @@ export default function SettingsView({
 
                   <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-900 space-y-1">
                     <span className="text-[10px] text-slate-500 font-black">المستوى اللغوي المستهدف:</span>
-                    <span className="text-cyan-400 font-black text-sm block">{profile.targetLevel}</span>
+                    <span className="text-cyan-400 font-black text-sm block">{profile.targetLevel || "A1"}</span>
                   </div>
 
                   <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-900 space-y-1">
@@ -280,7 +280,7 @@ export default function SettingsView({
                     <input
                       type="text"
                       className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs"
-                      value={editName}
+                      value={editName || ""}
                       onChange={(e) => setEditName(e.target.value)}
                     />
                   </div>
@@ -344,7 +344,7 @@ export default function SettingsView({
                     <input
                       type="password"
                       placeholder="أدخل كلمة مرورك الحالية"
-                      className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs placeholder:text-slate-650"
+                      className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs placeholder:text-slate-600"
                       value={oldPassword}
                       onChange={(e) => setOldPassword(e.target.value)}
                     />
@@ -355,7 +355,7 @@ export default function SettingsView({
                     <input
                       type="password"
                       placeholder="كلمة المرور الجديدة"
-                      className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs placeholder:text-slate-650"
+                      className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs placeholder:text-slate-600"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                     />
@@ -366,7 +366,7 @@ export default function SettingsView({
                     <input
                       type="password"
                       placeholder="أعد كتابة المدخل الجديد للتأكيد"
-                      className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs placeholder:text-slate-650"
+                      className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs placeholder:text-slate-600"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                     />
@@ -406,7 +406,7 @@ export default function SettingsView({
 
                 <form onSubmit={handleSupportSubmit} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-350">موضوع الرسالة:</label>
+                    <label className="block text-xs font-bold text-slate-450">موضوع الرسالة:</label>
                     <input
                       type="text"
                       className="w-full px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs"
@@ -417,7 +417,7 @@ export default function SettingsView({
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-350">تفاصيل الرسالة أو المشكلة:</label>
+                    <label className="block text-xs font-bold text-slate-450">تفاصيل الرسالة أو المشكلة:</label>
                     <textarea
                       rows={4}
                       className="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs leading-relaxed"

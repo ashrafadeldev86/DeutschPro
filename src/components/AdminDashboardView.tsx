@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { PremiumRequest, UserProfile } from "../types";
-import { Users, CheckCircle, XCircle, Clock, ShieldAlert, Award, AlertCircle, RefreshCw, Eye, EyeOff, UserCheck, Download, Activity } from "lucide-react";
+import { Users, CheckCircle, XCircle, Clock, ShieldAlert, Award, AlertCircle, RefreshCw, Eye, EyeOff, UserCheck, Download, Activity, KeyRound, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface AdminDashboardViewProps {
@@ -24,6 +24,49 @@ export default function AdminDashboardView({
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [stats, setStats] = useState<{ totalUsers: number; activeUsersToday: number; appInstalls: number; premiumUsersCount?: number } | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
+
+  // Custom API Keys State
+  const [customApiKeys, setCustomApiKeys] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("deutsch_spaced_rep_api_key_override") || "";
+    }
+    return "";
+  });
+  const [keysFeedback, setKeysFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [keysLoading, setKeysLoading] = useState(false);
+
+  const handleSaveApiKeys = (e: React.FormEvent) => {
+    e.preventDefault();
+    setKeysFeedback(null);
+    setKeysLoading(true);
+    
+    try {
+      const splitKeys = customApiKeys
+        .replace(/[;\n\r،]/g, ",")
+        .split(",")
+        .map(k => k.trim())
+        .map(k => k.replace(/["']/g, ""))
+        .filter(k => k.length > 0);
+
+      const cleanedString = splitKeys.join(",");
+      
+      if (typeof window !== "undefined") {
+        localStorage.setItem("deutsch_spaced_rep_api_key_override", cleanedString);
+      }
+      
+      setKeysFeedback({
+        type: "success",
+        msg: `تم حفظ وتفعيل عدد (${splitKeys.length}) من مفاتيح Gemini API بنجاح! ميزة الدوران والموازنة الذكية مفعلة الآن تلقائياً لتفادي أي انقطاع بالخدمة.`
+      });
+    } catch (err: any) {
+      setKeysFeedback({
+        type: "error",
+        msg: "حدث خطأ غير متوقع أثناء حفظ مفاتيح الذكاء الاصطناعي."
+      });
+    } finally {
+      setKeysLoading(false);
+    }
+  };
 
   const isAdmin = profile.email.toLowerCase().trim() === "ashrafadelnn666@gmail.com";
 
@@ -96,7 +139,7 @@ export default function AdminDashboardView({
                 : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
             }`}
           >
-            ⭐ اجعلني Premium
+            اجعلني Premium
           </button>
           <button
             onClick={() => onToggleUserPremiumStatus(false)}
@@ -106,7 +149,7 @@ export default function AdminDashboardView({
                 : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
             }`}
           >
-            🚫 إبطال اشتراكي الـ Premium
+            إبطال اشتراكي الـ Premium
           </button>
         </div>
       </div>
@@ -258,6 +301,106 @@ export default function AdminDashboardView({
 
       </div>
 
+      {/* 🔑 AI Keys Management Panel (Admin Only) */}
+      {isAdmin && (
+        <div className="p-6 bg-slate-950/60 rounded-3xl border border-slate-900 shadow-xl space-y-6 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-600" />
+          
+          <div className="border-b border-slate-900/60 pb-3 flex items-center justify-between">
+            <h3 className="text-sm font-black text-white flex items-center gap-2">
+              <KeyRound className="w-4.5 h-4.5 text-blue-500 animate-pulse" />
+              <span>إدارة مفاتيح الـ AI وتناوب الخدمات 🔑 (خاص بك وحدك)</span>
+            </h3>
+          </div>
+
+          <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-900 text-xs text-slate-300 leading-relaxed space-y-3">
+            <p className="font-bold text-white flex items-center gap-1.5 text-blue-400">
+              <Sparkles className="w-4 h-4 shrink-0" />
+              <span>ميزة الموازنة وتفادي الانقطاع (Load Balancing & Failover):</span>
+            </p>
+            <p>
+              مرحباً يا كوتش أشرف! يتيح لك هذا النظام الفريد إدخال مفتاح أو **مجموعة مفاتيح متعددة (API Keys)** للذكاء الاصطناعي (Gemini). يقرأ النظام المفاتيح وبشكل آلي ذكي، إذا ما تم حظر أحد المفاتيح أو بلغ الحد الأقصى المسموح به للاستخدام اليومي، فسينتقل مباشرة وبسرعة فائقة للمفتاح الاحتياطي التالي دون أن يشعر الطلاب بأي انقطاع في التدريبات أو التصحيح!
+            </p>
+            <div className="pt-1.5 border-t border-slate-900/40 text-[11px] text-slate-400">
+              💡 <span className="font-bold text-slate-300">كيف تحصل على مفاتيح مجانية؟</span> يمكنك الحصول على مفاتيح متعددة مجاناً في ثوانٍ معدودة عبر فتح <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-blue-400 underline hover:text-blue-300 font-bold">Google AI Studio 🔗</a> وإنشاء مفاتيح API جديدة بحسابك.
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveApiKeys} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-350">أدخل مفتاحاً واحداً أو كوداً لعدة مفاتيح احتياطية:</label>
+              <textarea
+                rows={5}
+                className="w-full p-4 bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500 text-xs font-mono leading-relaxed"
+                placeholder="ألصق مفتاح الـ API هنا...&#10;إذا كان لديك عدة مفاتيح، ضع كل مفتاح في سطر مستقل أو افصل بينها بفاصلة (،) ليفهمها السيرفر تلقائياً.&#10;مثال:&#10;AIzaSyCc123x...&#10;AIzaSyDb456y..."
+                value={customApiKeys || ""}
+                onChange={(e) => setCustomApiKeys(e.target.value)}
+              />
+            </div>
+
+            {/* Real-time split preview */}
+            {customApiKeys.trim().length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">المفاتيح التي جرى تحليلها وتجهيزها للاستخدام ({
+                  customApiKeys
+                    .replace(/[;\n\r،]/g, ",")
+                    .split(",")
+                    .map(k => k.trim())
+                    .map(k => k.replace(/["']/g, ""))
+                    .filter(k => k.length > 0).length
+                }):</p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {customApiKeys
+                    .replace(/[;\n\r،]/g, ",")
+                    .split(",")
+                    .map(k => k.trim())
+                    .map(k => k.replace(/["']/g, ""))
+                    .filter(k => k.length > 0)
+                    .map((key, index) => {
+                      const maskedKey = key.length > 10 
+                        ? `${key.substring(0, 8)}...${key.substring(key.length - 4)}` 
+                        : key;
+                      return (
+                        <div key={index} className="flex items-center justify-between p-2.5 bg-slate-900/40 border border-slate-800/60 rounded-xl text-left font-mono text-[10px] text-slate-400 font-bold">
+                          <span className="text-cyan-400 font-sans font-bold">مفتاح {index + 1}#</span>
+                          <span className="text-slate-250">{maskedKey}</span>
+                          <span className="text-emerald-400 text-xs font-bold">✓</span>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={keysLoading}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer ml-auto transition-all"
+            >
+              <span>{keysLoading ? "جاري التفعيل الفوري..." : "تحديث وحفظ المفاتيح الاحتياطية 💾"}</span>
+            </button>
+          </form>
+
+          {/* Keys action feedback */}
+          {keysFeedback && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`p-3.5 rounded-2xl text-xs font-bold border flex items-center gap-2 ${
+                keysFeedback.type === "success"
+                  ? "bg-emerald-950/20 border-emerald-900/50 text-emerald-400"
+                  : "bg-red-950/20 border-red-900/50 text-rose-450"
+              }`}
+            >
+              <CheckCircle className="w-4.5 h-4.5 shrink-0" />
+              <p>{keysFeedback.msg}</p>
+            </motion.div>
+          )}
+
+        </div>
+      )}
+
       {/* Requests Segment */}
       <div className="space-y-4">
         <h3 className="text-sm font-black text-white flex items-center gap-2">
@@ -267,7 +410,6 @@ export default function AdminDashboardView({
 
         {requests.length === 0 ? (
           <div className="bg-slate-950/20 border border-slate-900/60 rounded-2xl p-10 text-center space-y-3">
-            <div className="text-3xl text-slate-600">📥</div>
             <p className="text-xs text-slate-500">لا يوجد أي طلبات اشتراك في النظام حالياً.</p>
             <p className="text-[10px] text-slate-600">تفضل بنقر زر "حقن طلب مراجعة تجريبي" للبدء في اختبار تفعيل الاشتراك ورفضه فورا!</p>
           </div>
@@ -316,7 +458,7 @@ export default function AdminDashboardView({
                           ? "bg-red-950/40 text-rose-400 border border-red-900"
                           : "bg-amber-950 text-amber-500 border border-amber-900"
                       }`}>
-                        {req.status === "approved" ? "✔ مقبول و مفعّل" : req.status === "rejected" ? "❌ مرفوض" : "⏳ معلق قيد التدقيق"}
+                        {req.status === "approved" ? "مقبول و مفعّل" : req.status === "rejected" ? "مرفوض" : "معلق قيد التدقيق"}
                       </span>
                     </div>
                   </div>
@@ -337,7 +479,7 @@ export default function AdminDashboardView({
                     <div className="space-y-0.5">
                       <span className="text-[9px] font-bold text-slate-500 block">طريقة التحويل:</span>
                       <span className="text-white text-xs block">
-                        {req.paymentMethod === "vodafone" ? "🟢 Vodafone Cash" : "🔵 PayPal"}
+                        {req.paymentMethod === "vodafone" ? "Vodafone Cash" : "PayPal"}
                       </span>
                     </div>
 
@@ -362,7 +504,7 @@ export default function AdminDashboardView({
                           onClick={() => setSelectedScreenshot(req.screenshot || null)}
                         />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none rounded-lg">
-                          <span className="text-[9px] text-white font-bold bg-slate-905/90 px-2 py-1 rounded">تكبير الصورة 🔍</span>
+                          <span className="text-[9px] text-white font-bold bg-slate-905/90 px-2 py-1 rounded">تكبير الصورة</span>
                         </div>
                       </div>
                     </div>
@@ -376,7 +518,7 @@ export default function AdminDashboardView({
                         className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-505 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-sm"
                       >
                         <CheckCircle className="w-4 h-4" />
-                        <span>موافقة وتنشيط الاشتراك الذهبي 👑</span>
+                        <span>موافقة وتنشيط الاشتراك الذهبي</span>
                       </button>
                       
                       <button
@@ -384,7 +526,7 @@ export default function AdminDashboardView({
                         className="px-4 py-2.5 bg-slate-900 hover:bg-red-950/20 text-rose-300 hover:text-rose-200 border border-slate-800 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                       >
                         <XCircle className="w-4 h-4 text-rose-450" />
-                        <span>رفض طلب المعاملة ❌</span>
+                        <span>رفض طلب المعاملة</span>
                       </button>
                     </div>
                   )}
@@ -427,7 +569,7 @@ export default function AdminDashboardView({
                 className="max-w-full max-h-[75vh] object-contain rounded-lg"
               />
               <div className="text-center pt-3 text-xs text-slate-400 font-semibold">
-                انقر في أي مكان للإغلاق ❌
+                انقر في أي مكان للإغلاق
               </div>
             </motion.div>
           </div>

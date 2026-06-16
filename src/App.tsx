@@ -5,19 +5,22 @@ import {
   saveStoredSentences 
 } from "./utils";
 import AddSentenceView from "./components/AddSentenceView";
-import DailyQuizView from "./components/DailyQuizView";
-import AIChatView from "./components/AIChatView";
-import SpeakingPracticeView from "./components/SpeakingPracticeView";
+import TrainingView from "./components/TrainingView";
+import WritingDictationView from "./components/WritingDictationView";
+import ConversationCommunityView from "./components/ConversationCommunityView";
 import DashboardView from "./components/DashboardView";
 import AuthView from "./components/AuthView";
 import SettingsView from "./components/SettingsView";
 import PremiumUpgradeView from "./components/PremiumUpgradeView";
 import AdminDashboardView from "./components/AdminDashboardView";
+import LessonsView from "./components/LessonsView";
+import StatsView from "./components/StatsView";
+import AchievementsView from "./components/AchievementsView";
 
 import { 
   Sparkles, BookOpen, BrainCircuit, GraduationCap, Award, Calendar, 
   MessageSquare, Layers, Clock, TrendingUp, Mic, Sun, Moon, CheckCircle, 
-  X, HelpCircle, Trophy, BarChart3 
+  X, HelpCircle, Trophy, BarChart3, Menu, User, Settings, Lock, Shield, PlusCircle, ArrowLeft
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -78,6 +81,13 @@ export default function App() {
   const [sentences, setSentences] = useState<Sentence[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>(Tab.Dashboard);
   const [premiumRequests, setPremiumRequests] = useState<PremiumRequest[]>([]);
+  const [initialRoomId, setInitialRoomId] = useState<string | null>(null);
+  
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [pendingTabTransition, setPendingTabTransition] = useState<Tab | null>(null);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [hasActiveTrainingProgress, setHasActiveTrainingProgress] = useState(false);
+  const [hasActiveWritingProgress, setHasActiveWritingProgress] = useState(false);
   
   // Profile state managed cleanly
   const [profile, setProfile] = useState<UserProfile>({
@@ -180,6 +190,14 @@ export default function App() {
     setSentences(getStoredSentences());
     
     if (typeof window !== "undefined") {
+      // Parse URL Search parameters to detect invitation voice room links
+      const params = new URLSearchParams(window.location.search);
+      const targetRoom = params.get("room");
+      if (targetRoom) {
+        setInitialRoomId(targetRoom);
+        setActiveTab(Tab.Conversation);
+      }
+
       const storedProfile = localStorage.getItem("deutsch_spaced_rep_user_profile");
       const storedAchievements = localStorage.getItem("deutsch_spaced_rep_achievements");
 
@@ -227,7 +245,7 @@ export default function App() {
   useEffect(() => {
     if (profile.registered && profile.email === "ashrafadelnn666@gmail.com") {
       fetchAdminRequests();
-      const interval = setInterval(fetchAdminRequests, 7000);
+      const interval = setInterval(fetchAdminRequests, 7500);
       return () => clearInterval(interval);
     }
   }, [profile.registered, profile.email]);
@@ -290,10 +308,8 @@ export default function App() {
       });
 
       if (response.ok) {
-        // Refresh local requests lists
         fetchAdminRequests();
         
-        // Update local requests status safely
         const updatedRequests = premiumRequests.map(r => {
           if (r.id === requestId) {
             return { ...r, status: "approved" as const };
@@ -327,7 +343,6 @@ export default function App() {
       });
 
       if (response.ok) {
-        // Refresh requests pool
         fetchAdminRequests();
 
         const updatedRequests = premiumRequests.map(r => {
@@ -396,7 +411,38 @@ export default function App() {
     }
   };
 
-  // Onboarding & Account Authentication callback
+  const handleTabChangeAttempt = (targetTab: Tab) => {
+    if (activeTab === targetTab) {
+      setIsDrawerOpen(false);
+      return;
+    }
+    const hasProgress = 
+      (activeTab === Tab.Training && hasActiveTrainingProgress) ||
+      (activeTab === Tab.Writing && hasActiveWritingProgress);
+
+    if (hasProgress) {
+      setPendingTabTransition(targetTab);
+      setShowExitConfirm(true);
+    } else {
+      executeTabChange(targetTab);
+    }
+  };
+
+  const executeTabChange = (targetTab: Tab) => {
+    const isPremiumUser = profile.isPremium || profile.email?.toLowerCase().trim() === "ashrafadelnn666@gmail.com";
+    if ((targetTab === Tab.Conversation || targetTab === Tab.Lessons) && !isPremiumUser) {
+      setActiveTab(Tab.Premium);
+      setIsDrawerOpen(false);
+      alert("المحادثات الحية والدروس المتقدمة ميزة حصرية للاشتراك المدفوع Premium. يرجى الترقية ⭐");
+      return;
+    }
+    setActiveTab(targetTab);
+    setInitialRoomId(null);
+    setHasActiveTrainingProgress(false);
+    setHasActiveWritingProgress(false);
+    setIsDrawerOpen(false);
+  };
+
   const handleAuthSuccess = (dbUser: any) => {
     const starterProfile: UserProfile = {
       name: dbUser.name,
@@ -430,13 +476,11 @@ export default function App() {
     }
 
     setActiveTab(Tab.Dashboard);
-
-    // Run first evaluation check
     evaluateAchievements(starterProfile, dbUser.sentences || [], dbUser.achievements || achievements);
   };
 
   // Master award XP and statistics updater
-  const handleAwardXp = (xpAwarded: number, srcType: "speaking_sentences" | "sentences" | "correct_quizzes" | "chat_turns") => {
+  const handleAwardXp = (xpAwarded: number, srcType: string) => {
     const nextXp = profile.xp + xpAwarded;
     const nextLevel = Math.floor(nextXp / 200) + 1;
     
@@ -459,13 +503,11 @@ export default function App() {
     saveProfileState(updatedProfile);
     evaluateAchievements(updatedProfile, sentences, achievements);
 
-    // Sync state
     if (profile.email) {
       syncWithServer(profile.email, updatedProfile, sentences, achievements);
     }
   };
 
-  // Evaluate and check milestones
   const evaluateAchievements = (
     currentProfile: UserProfile, 
     currentSentences: Sentence[],
@@ -533,13 +575,19 @@ export default function App() {
     }
   };
 
-  // Mutator actions
-  const handleAddSentence = (german: string, arabic: string) => {
+  const handleAddSentence = (german: string, arabic: string, langLevel?: any) => {
+    const isPremiumUser = profile.isPremium || profile.email?.toLowerCase().trim() === "ashrafadelnn666@gmail.com";
+    if (!isPremiumUser && sentences.length >= 150) {
+      alert("لقد وصلت إلى الحد الأقصى للجمل في النسخة المجانية. قم بالترقية إلى Premium للحصول على جمل غير محدودة ومميزات حصرية.");
+      return;
+    }
+
     const newSentence: Sentence = {
       id: `sentence-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       german,
       arabic,
       level: 0,
+      langLevel: langLevel || "A1",
       nextReview: new Date().toISOString(),
     };
     const updated = [newSentence, ...sentences];
@@ -561,19 +609,6 @@ export default function App() {
     }
   };
 
-  const handleUpdateSentence = (updatedSentence: Sentence) => {
-    const updated = sentences.map((s) => 
-      s.id === updatedSentence.id ? updatedSentence : s
-    );
-    setSentences(updated);
-    saveStoredSentences(updated);
-
-    if (profile.email) {
-      syncWithServer(profile.email, profile, updated, achievements);
-    }
-  };
-
-  // Toggle Theme
   const handleToggleTheme = () => {
     const nextTheme = profile.theme === "dark" ? "light" : "dark";
     const updated = {
@@ -583,15 +618,6 @@ export default function App() {
     saveProfileState(updated);
   };
 
-  // Derivative metrics
-  const now = new Date();
-  const dueSentencesCount = sentences.filter((s) => new Date(s.nextReview) <= now).length;
-  const sentenceCount = sentences.length;
-  const overallMastery = Math.round(
-    (sentences.reduce((sum, current) => sum + (current.level > 0 ? 1 : 0), 0) / (sentenceCount || 1)) * 100
-  );
-
-  // Settings action helpers
   const handleUpdateProfile = async (name: string, age: number, targetLevel: string) => {
     try {
       const response = await fetch("/api/auth/update-profile", {
@@ -655,7 +681,6 @@ export default function App() {
     }
   };
 
-  // If not registered or logged in, display AuthView immediately
   if (!profile.registered || !profile.email) {
     return (
       <AuthView
@@ -665,7 +690,6 @@ export default function App() {
     );
   }
 
-  // Choose styling classes based on Light/Dark active themes
   const isDark = profile.theme === "dark";
   const bgThemeClass = isDark 
     ? "bg-[#040608] text-[#f8fafc]" 
@@ -676,14 +700,15 @@ export default function App() {
   const sidebarHeaderClass = isDark ? "text-white" : "text-slate-900";
   const menuInactiveTextClass = isDark ? "text-[#94a3b8] hover:text-white" : "text-slate-500 hover:text-slate-950";
 
-  // Hide admin tab dynamically for non-admin accounts to ensure lock security
   const isAdmin = profile.email.toLowerCase().trim() === "ashrafadelnn666@gmail.com";
+  
+  // Navigation tabs updated to support the spectacular new design modules
   const navigationItems = [
     { id: Tab.Dashboard, label: "الرئيسية 📈" },
     { id: Tab.AddSentence, label: "المخزن 📖" },
-    { id: Tab.DailyQuiz, label: "الاختبار 🧩" },
-    { id: Tab.SpeakingPractice, label: "التحدث 🎙️" },
-    { id: Tab.AIChat, label: "الدردشة 💬" },
+    { id: Tab.Training, label: "التدريب 🧩" },
+    { id: Tab.Writing, label: "الكتابة ✍️" },
+    { id: Tab.Conversation, label: "المحادثة 💬" },
     { id: Tab.Premium, label: "الترقية 👑" },
     ...(isAdmin ? [{ id: Tab.Admin, label: "الإدارة 🛠️" }] : []),
     { id: Tab.Settings, label: "الإعدادات ⚙️" }
@@ -692,7 +717,7 @@ export default function App() {
   return (
     <div className={`min-h-screen ${bgThemeClass} font-sans antialiased relative overflow-x-hidden selection:bg-blue-600/30 selection:text-white transition-colors duration-300`}>
       
-      {/* Absolute Radial Background Spotlights - only on dark theme */}
+      {/* Background spotlights */}
       {isDark && (
         <div className="absolute inset-0 pointer-events-none z-0">
           <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[radial-gradient(circle_at_100%_0%,rgba(12,21,36,0.6),transparent_70%)]" />
@@ -713,21 +738,19 @@ export default function App() {
             {/* Header Area */}
             <header className="flex flex-col sm:flex-row items-center justify-between border-b border-white/10 pb-4 gap-4">
               <div className="flex items-center gap-3">
-                <GraduationCap className="w-8 h-8 text-blue-500 animate-pulse" />
-                <div>
-                  <h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-2">
+                <GraduationCap className="w-8 h-8 text-blue-500 animate-pulse bg-blue-600/10 p-1.5 rounded-xl border border-blue-500/20" />
+                <div className="text-right">
+                  <h1 className="text-xl font-black tracking-tight flex items-center gap-2">
                     DEUTSCH PRO 🇩🇪
-                    <span className="text-blue-500">.</span>
                   </h1>
-                  <span className={`inline-block text-[10px] uppercase tracking-widest font-bold px-2.5 py-0.5 rounded-full ${isDark ? "bg-blue-950/40 text-blue-400 border border-blue-500/10" : "bg-blue-50 text-blue-700 border border-blue-100"}`}>
-                    Gemini AI On Call 🤖
+                  <span className={`inline-block text-[9px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full ${isDark ? "bg-blue-950/40 text-blue-400 border border-blue-500/10 font-sans" : "bg-blue-50 text-blue-750 border border-blue-100"}`}>
+                    Gemini AI On Duty 🧠
                   </span>
                 </div>
               </div>
 
-              {/* Theme support Sun/Moon toggler + nav */}
+              {/* Theme Support Toggles */}
               <div className="flex items-center gap-3 flex-wrap">
-                {/* ☀️ / 🌙 Toggle Button */}
                 <button
                   onClick={handleToggleTheme}
                   className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center justify-center ${
@@ -737,7 +760,7 @@ export default function App() {
                   }`}
                   title={isDark ? "تغيير إلى الوضع النهاري ☀️" : "تغيير إلى الوضع الليلي 🌙"}
                 >
-                  {isDark ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
+                  {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                 </button>
 
                 {/* Navigation Tabs */}
@@ -745,10 +768,22 @@ export default function App() {
                   {navigationItems.map((menuItem) => (
                     <button
                       key={menuItem.id}
-                      onClick={() => setActiveTab(menuItem.id as Tab)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all ${
+                      onClick={() => {
+                        const targetId = menuItem.id as Tab;
+                        const isPremiumUser = profile.isPremium || profile.email?.toLowerCase().trim() === "ashrafadelnn666@gmail.com";
+                        if (targetId === Tab.Conversation && !isPremiumUser) {
+                          alert("المحادثات الحية والدروس المتقدمة متاحة حصرياً لمشتركي Premium. ⭐");
+                          setActiveTab(Tab.Premium);
+                          return;
+                        }
+                        setActiveTab(targetId);
+                        if (targetId !== Tab.Conversation) {
+                          setInitialRoomId(null); // Clear URL autojoins if they navigate away
+                        }
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-black cursor-pointer transition-all ${
                         activeTab === menuItem.id
-                          ? "bg-blue-600 text-white shadow-[0_2px_10px_rgba(37,99,235,0.3)]"
+                          ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-purple-500/10 border-white/10"
                           : menuInactiveTextClass
                       }`}
                     >
@@ -759,15 +794,15 @@ export default function App() {
               </div>
             </header>
 
-            {/* Dynamic Tab Switchboard */}
+            {/* Dynamic Card Area */}
             <div className="flex-grow">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeTab}
-                  initial={{ opacity: 0, x: -10 }}
+                  initial={{ opacity: 0, x: -7 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  transition={{ duration: 0.2 }}
+                  exit={{ opacity: 0, x: 7 }}
+                  transition={{ duration: 0.15 }}
                 >
                   {activeTab === Tab.Dashboard && (
                     <DashboardView
@@ -783,28 +818,32 @@ export default function App() {
                       sentences={sentences}
                       onAddSentence={handleAddSentence}
                       onDeleteSentence={handleDeleteSentence}
+                      isPremium={profile.isPremium || profile.email?.toLowerCase().trim() === "ashrafadelnn666@gmail.com"}
                     />
                   )}
 
-                  {activeTab === Tab.DailyQuiz && (
-                    <DailyQuizView
-                      sentences={sentences}
-                      onUpdateSentence={handleUpdateSentence}
-                      onAwardXp={handleAwardXp}
-                    />
-                  )}
-
-                  {activeTab === Tab.SpeakingPractice && (
-                    <SpeakingPracticeView
+                  {activeTab === Tab.Training && (
+                    <TrainingView
                       sentences={sentences}
                       onAwardXp={handleAwardXp}
+                      profile={profile}
                     />
                   )}
 
-                  {activeTab === Tab.AIChat && (
-                    <AIChatView 
-                      sentences={sentences} 
+                  {activeTab === Tab.Writing && (
+                    <WritingDictationView
+                      sentences={sentences}
                       onAwardXp={handleAwardXp}
+                      profile={profile}
+                    />
+                  )}
+
+                  {activeTab === Tab.Conversation && (
+                    <ConversationCommunityView 
+                      userProfile={{ name: profile.name, email: profile.email, xp: profile.xp, isPremium: profile.isPremium }} 
+                      onAwardXp={handleAwardXp}
+                      sentences={sentences}
+                      initialRoomIdFromUrl={initialRoomId}
                     />
                   )}
 
@@ -841,69 +880,67 @@ export default function App() {
             
           </main>
 
-          {/* Sidebar */}
+          {/* Sidebar Area */}
           <aside className={`lg:col-span-4 rounded-3xl p-6 space-y-6 order-2 lg:order-2 self-start shadow-xl border ${cardThemeClass}`} dir="rtl">
             
-            <div className="space-y-1.5">
-              <h2 className={`text-base font-bold flex items-center gap-2 ${sidebarHeaderClass}`}>
-                <Layers className="w-5 h-5 text-blue-500" />
-                تحليل الملف التعليمي
+            <div className="space-y-1">
+              <h2 className={`text-sm font-black flex items-center gap-2 ${sidebarHeaderClass}`}>
+                <Layers className="w-4 h-4 text-purple-400 shrink-0" />
+                لوحة الأداء اللغوي التراكمي
               </h2>
-              <p className="text-[11px] text-[#94a3b8] leading-relaxed">
-                تقارير التقدم والخلفيات الفنية لتدريبك الصوتي الشامل وحالة الأوسمة والنقاط.
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                متابعة شارات التقدم العلمي وأيام المثابرة المحتسبة للتعلم.
               </p>
             </div>
 
-            {/* Real Stats Displays */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-1 gap-4">
-              
-              <div className={`p-4 rounded-2xl flex flex-col justify-between border ${isDark ? "bg-slate-950/50 border-white/5" : "bg-slate-50 border-slate-200"}`}>
-                <span className="text-xs text-[#94a3b8] font-bold">بانتظار المراجعة اليوم:</span>
-                <span className="text-2xl font-black text-rose-500 mt-1">{dueSentencesCount} جملة ⏳</span>
+            {/* Profile Statistics Panel displays */}
+            <div className="grid grid-cols-1 gap-3">
+              <div className={`p-4 rounded-2xl flex flex-col border ${isDark ? "bg-slate-900/40 border-slate-850" : "bg-slate-50 border-slate-200"}`}>
+                <span className="text-[10px] text-slate-500 font-bold">مجموع نقاط الـ XP المكتسبة:</span>
+                <span className="text-xl font-black text-cyan-405 mt-1 font-sans">{profile.xp} XP ⭐</span>
               </div>
 
-              <div className={`p-4 rounded-2xl flex flex-col justify-between border ${isDark ? "bg-slate-950/50 border-white/5" : "bg-slate-50 border-slate-200"}`}>
-                <span className="text-xs text-[#94a3b8] font-bold">مجموع نقاط الـ XP:</span>
-                <span className="text-2xl font-black text-cyan-400 mt-1">{profile.xp} XP ⭐</span>
+              <div className={`p-4 rounded-2xl flex flex-col border ${isDark ? "bg-slate-900/40 border-slate-850" : "bg-slate-50 border-slate-200"}`}>
+                <span className="text-[10px] text-slate-500 font-bold">جلسات المذاكرة المتتالية:</span>
+                <span className="text-xl font-black text-rose-500 mt-1 font-sans">{profile.streak} يوم 🔥</span>
               </div>
 
-              <div className={`p-4 rounded-2xl flex flex-col justify-between border ${isDark ? "bg-slate-950/50 border-white/5" : "bg-slate-50 border-slate-200"}`}>
-                <span className="text-xs text-[#94a3b8] font-bold">رتبة التكرار والمثابرة:</span>
-                <span className="text-2xl font-black text-amber-500 mt-1">{profile.streak} أيام 🔥</span>
+              <div className={`p-4 rounded-2xl flex flex-col border ${isDark ? "bg-slate-900/40 border-slate-850" : "bg-slate-50 border-slate-200"}`}>
+                <span className="text-[10px] text-slate-500 font-bold">المستوى الفردي الكلي:</span>
+                <span className="text-xl font-black text-amber-500 mt-1">المرحلة {profile.level} 👑</span>
               </div>
-
             </div>
 
-            {/* Speaking Practice Quick Link box */}
-            <div className={`p-4 rounded-2xl border space-y-2 relative overflow-hidden group ${
-              isDark ? "bg-slate-950/40 border-cyan-500/20" : "bg-[#f0f9ff] border-blue-100"
+            {/* Audio Training Box Quick Access block */}
+            <div className={`p-4.5 rounded-2xl border space-y-2 relative overflow-hidden group ${
+              isDark ? "bg-slate-950/40 border-cyan-500/15" : "bg-[#f0f9ff] border-blue-100"
             }`}>
-              <div className="absolute top-0 right-0 w-1.5 h-full bg-cyan-500/20 group-hover:bg-cyan-500/40 transition-colors" />
+              <div className="absolute top-0 right-0 w-1 h-full bg-purple-500/30" />
               
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black text-cyan-600 uppercase tracking-wide">جديد: التدريب على التحدث 🎙️</span>
-                <span className="text-[9px] text-cyan-500 font-bold">نشط</span>
+                <span className="text-[9px] font-black text-purple-400 uppercase">مختبر الإملاء الصوتي الذكي 🎙️</span>
+                <span className="text-[8px] bg-purple-950 text-purple-400 font-bold px-1.5 py-0.5 rounded">مفعل</span>
               </div>
               
-              <p className={`text-[11px] leading-relaxed ${isDark ? "text-slate-350" : "text-slate-650"}`}>
-                يقوم التطبيق الآن بمقارنة صوتك وتحدثك بالجمل الحقيقية عبر ميكروفونك ويمنحك نقاط دقة بـ AI مع توضيح للمخارج الخاطئة.
+              <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                استمع لنطق المقالات الألمانية الرفيعة بالذكاء الاصطناعي، واختبر دقة إملائك النحوي فوراً بمراجعات تدريبية متقنة.
               </p>
               
               <button
-                onClick={() => setActiveTab(Tab.SpeakingPractice)}
-                className="w-full text-center py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs text-cyan-300 font-bold rounded-lg transition-colors cursor-pointer block"
+                onClick={() => setActiveTab(Tab.Writing)}
+                className="w-full text-center py-2 bg-slate-950 hover:bg-slate-900 text-slate-300 font-bold text-[10px] border border-slate-850 rounded-xl transition-all cursor-pointer block"
               >
-                جرب تدريب اللفظ الصوتي الآن
+                افتح مختبر الإملاء الفوري
               </button>
             </div>
 
-            {/* Signature Area */}
-            <div className="pt-6 border-t border-slate-900 text-center flex flex-col items-center justify-center">
-              <span className="text-[10px] text-slate-500 tracking-wider font-semibold">
-                مطور التطبيق لتعلم الألمانية
+            {/* Footer rights line */}
+            <div className="pt-4 border-t border-slate-900 text-center flex flex-col items-center justify-center">
+              <span className="text-[9px] text-slate-650 tracking-wider font-extrabold block">
+                تطوير وبناء برمجيات تطبيق دويتش برو
               </span>
-              <p className="text-xs font-bold text-blue-500 mt-1">
-                تم إنشاءه من المهندس اشرف عادل عبدالعال
+              <p className="text-[10px] font-black text-blue-500 mt-0.5">
+                المهندس أشرف عادل عبدالعال © ٢٠٢٦
               </p>
             </div>
 
@@ -913,15 +950,15 @@ export default function App() {
 
       </div>
 
-      {/* Full screen congratulatory modal celebrating dynamic unlocks */}
+      {/* Accomplishments congrats modal popups */}
       <AnimatePresence>
         {newlyUnlockedAchievement && (
           <div className="fixed inset-0 bg-slate-950/90 z-50 flex items-center justify-center p-4" dir="rtl">
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="max-w-md w-full p-8 rounded-3xl bg-slate-900 border border-yellow-500 text-center space-y-6 relative overflow-hidden shadow-[0_0_50px_rgba(234,179,8,0.3)]"
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="max-w-md w-full p-8 rounded-3xl bg-slate-900 border border-yellow-500 text-center space-y-6 relative overflow-hidden shadow-[0_0_50px_rgba(234,179,8,0.35)]"
             >
               <div className="absolute top-0 right-0 w-full h-1.5 bg-gradient-to-l from-yellow-500 to-transparent" />
               
@@ -930,21 +967,21 @@ export default function App() {
               </div>
 
               <div className="space-y-2">
-                <span className="text-[10px] text-yellow-500 font-extrabold uppercase tracking-widest block">لقد فتحت إنجازاً وساماً رائعاً!</span>
-                <h3 className="text-2xl font-black text-white">{newlyUnlockedAchievement.title}</h3>
-                <p className="text-sm text-slate-350 leading-relaxed">{newlyUnlockedAchievement.description}</p>
+                <span className="text-[9px] text-yellow-500 font-bold block uppercase tracking-wider">تهانينا الحارة! لقد حققت وساماً جديداً!</span>
+                <h3 className="text-xl font-black text-white">{newlyUnlockedAchievement.title}</h3>
+                <p className="text-xs text-slate-300 leading-relaxed font-sans">{newlyUnlockedAchievement.description}</p>
               </div>
 
-              <div className="p-3 rounded-2xl bg-slate-950 border border-slate-850/80 inline-block">
-                <span className="text-xs text-yellow-400 font-extrabold">+{(newlyUnlockedAchievement as Achievement).xpAward} XP نقاط خبرة ومستوى مكافأة! 🌟</span>
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-850/80 inline-block font-sans">
+                <span className="text-xs text-yellow-500 font-black">+{(newlyUnlockedAchievement as Achievement).xpAward} XP مكافأة خاصة! 🌟</span>
               </div>
 
               <div>
                 <button
                   onClick={() => setNewlyUnlockedAchievement(null)}
-                  className="w-full py-3 bg-gradient-to-r from-yellow-600 to-amber-500 hover:from-yellow-500 hover:to-amber-400 text-slate-950 font-black rounded-xl transition-all shadow-[0_4px_15px_rgba(234,179,8,0.3)] cursor-pointer text-xs"
+                  className="w-full py-3 bg-gradient-to-r from-yellow-600 to-amber-500 hover:from-yellow-500 hover:to-amber-400 text-slate-950 font-black rounded-xl transition-all shadow-[0_4px_15px_rgba(234,179,8,0.2)] cursor-pointer text-xs"
                 >
-                  شكراً جزيلًا! استمر بالتعلم 🚀
+                  حسناً، واصل التقدم المتميز 🚀
                 </button>
               </div>
             </motion.div>

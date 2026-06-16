@@ -12,6 +12,7 @@ interface AddSentenceViewProps {
   sentences: Sentence[];
   onAddSentence: (german: string, arabic: string) => void;
   onDeleteSentence: (id: string) => void;
+  isPremium: boolean;
 }
 
 interface GrammarCheckResult {
@@ -25,6 +26,7 @@ export default function AddSentenceView({
   sentences,
   onAddSentence,
   onDeleteSentence,
+  isPremium,
 }: AddSentenceViewProps) {
   const [german, setGerman] = useState("");
   const [arabic, setArabic] = useState("");
@@ -89,6 +91,11 @@ export default function AddSentenceView({
     const containsArabicInGerman = /[\u0600-\u06FF]/.test(german);
     if (containsArabicInGerman) {
       setErrorMessage("تنبيه: يبدو أنك أدخلت أحرفاً عربية في حقل الجملة الألمانية!");
+      return;
+    }
+
+    if (!isPremium && sentences.length >= 150) {
+      setErrorMessage("لقد وصلت إلى الحد الأقصى للجمل في النسخة المجانية. قم بالترقية إلى Premium للحصول على جمل غير محدودة ومميزات حصرية.");
       return;
     }
 

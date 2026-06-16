@@ -2,7 +2,8 @@ export interface Sentence {
   id: string;
   german: string;
   arabic: string;
-  level: number;
+  level: number; // Mastery spacing level (0 to 5)
+  langLevel?: "A1" | "A2" | "B1" | "B2" | "C1"; // CEFR level
   nextReview: string; // ISO String format
 }
 
@@ -11,17 +12,21 @@ export interface ChatMessage {
   content: string;
   correction?: string;
   translation?: string;
+  praise?: string; // encouraging note
 }
 
 export enum Tab {
+  Training = "training",
+  Writing = "writing",
+  Conversation = "conversation",
   AddSentence = "add_sentence",
-  DailyQuiz = "daily_quiz",
-  AIChat = "ai_chat",
-  SpeakingPractice = "speaking_practice",
   Dashboard = "dashboard",
   Premium = "premium",
   Admin = "admin",
   Settings = "settings",
+  Stats = "stats",
+  Achievements = "achievements",
+  Lessons = "lessons",
 }
 
 export interface UserProfile {

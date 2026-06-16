@@ -117,9 +117,9 @@ export default function PremiumUpgradeView({ profile, onSubmitUpgradeRequest }: 
           <Sparkles className="w-8 h-8 text-yellow-500 animate-pulse" />
         </div>
         <div className="space-y-2">
-          <h2 className="text-2xl font-black text-white">ترقية إلى العضوية الممتازة PRO 👑</h2>
+          <h2 className="text-2xl font-black text-white">🚀 ارتقِ بمستواك في اللغة الألمانية</h2>
           <p className="text-xs text-slate-400 max-w-xl mx-auto leading-relaxed">
-            استثمر في مستقبلك اللغوي واحصل على كافة مميزات التطبيق الحصرية: محادثات ذكاء اصطناعي غير محدودة، تحليل مخارج النطق الدقيق لجميع الجمل، تخزين لا نهائي في مخزن التكرار المتباعد.
+            احصل على تجربة تعلم احترافية بدون حدود وافتح جميع الأدوات المتقدمة المصممة لتطوير مستواك بسرعة.
           </p>
         </div>
         
@@ -199,28 +199,32 @@ export default function PremiumUpgradeView({ profile, onSubmitUpgradeRequest }: 
             <h4 className="text-xs font-bold text-slate-300">مزايا حصرية ستحصل عليها:</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-400">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-yellow-500">✔</span>
-                <span>مراجعات تكرار مجدول غير محدودة للجمل</span>
+                <span className="text-xs">⭐</span>
+                <span>محادثة AI غير محدودة.</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-yellow-500">✔</span>
-                <span>تقييم النطق عبر ميكروفون مدمج بـ AI</span>
+                <span className="text-xs">⭐</span>
+                <span>غرف صوتية مباشرة.</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-yellow-500">✔</span>
-                <span>محادثات ذكية غير محدودة مع معلم الألمانية</span>
+                <span className="text-xs">⭐</span>
+                <span>إضافة جمل غير محدودة.</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-yellow-500">✔</span>
-                <span>تصحيح واقتراحات دقيقة ومفصلة للقواعد</span>
+                <span className="text-xs">⭐</span>
+                <span>محتوى حصري ودروس متقدمة.</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-yellow-500">✔</span>
-                <span>دعم فني مخصص ذو أولوية طوال اليوم</span>
+                <span className="text-xs">⭐</span>
+                <span>تدريبات احترافية.</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-yellow-500">✔</span>
-                <span>شارات Premium فريدة تظهر بملفك التعريفي</span>
+                <span className="text-xs">⭐</span>
+                <span>تحديثات مجانية مستقبلية.</span>
+              </div>
+              <div className="flex items-center gap-2 sm:col-span-2">
+                <span className="text-xs">⭐</span>
+                <span>أولوية في الحصول على المميزات الجديدة.</span>
               </div>
             </div>
           </div>

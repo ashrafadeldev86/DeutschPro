@@ -49,19 +49,10 @@ interface DBPremiumRequest {
   expiryDate?: string;
 }
 
-interface DBCommunityMessage {
-  id: string;
-  userEmail: string;
-  userName: string;
-  content: string;
-  createdAt: string;
-}
-
 interface DBStructure {
   users: DBUser[];
   requests: DBPremiumRequest[];
   appInstalls?: number;
-  communityMessages?: DBCommunityMessage[];
 }
 
 function hashPassword(password: string): string {
@@ -69,7 +60,7 @@ function hashPassword(password: string): string {
 }
 
 function loadDatabase(): DBStructure {
-  let db: DBStructure = { users: [], requests: [], appInstalls: 1, communityMessages: [] };
+  let db: DBStructure = { users: [], requests: [], appInstalls: 1 };
   if (fs.existsSync(DB_FILE)) {
     try {
       db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
@@ -80,10 +71,6 @@ function loadDatabase(): DBStructure {
 
   if (db.appInstalls === undefined) {
     db.appInstalls = 1;
-  }
-
-  if (!Array.isArray(db.communityMessages)) {
-    db.communityMessages = [];
   }
 
   // Ensure Admin user exists
@@ -124,6 +111,114 @@ function saveDatabase(db: DBStructure) {
   }
 }
 
+function checkIsAdmin(email: string, db: DBStructure): boolean {
+  if (!email) return false;
+  const normalized = email.toLowerCase().trim();
+  if (normalized === "ashrafadelnn666@gmail.com" || normalized === "ashrafadelnn666") {
+    return true;
+  }
+  const user = db.users.find(u => u.email.toLowerCase().trim() === normalized);
+  return !!(user && (user as any).isAdmin);
+}
+
+interface FailoverParams {
+  model: string;
+  contents: any;
+  config?: any;
+}
+
+async function generateContentWithFailover(
+  customApiKey: string | undefined,
+  params: FailoverParams
+) {
+  let rawKeysStr = "";
+  if (customApiKey && customApiKey.trim() !== "") {
+    rawKeysStr = customApiKey;
+  } else if (process.env.GEMINI_API_KEY) {
+    rawKeysStr = process.env.GEMINI_API_KEY;
+  }
+
+  if (!rawKeysStr || rawKeysStr.trim() === "") {
+    throw new Error("لم يتم تكوين أي مفتاح ذكاء اصطناعي (Gemini API Key). يرجى إضافة مفتاح واحد أو أكثر في الإعدادات.");
+  }
+
+  // Parse keys split by commas, semicolons, Arabic commas, or newlines
+  const keys = rawKeysStr
+    .replace(/[;\n\r،]/g, ",")
+    .split(",")
+    .map(k => k.trim())
+    .map(k => k.replace(/["']/g, "")) // remove potential quotes around pasted keys
+    .filter(k => k.length > 0 && !k.startsWith("MY_GEMINI_API_KEY"));
+
+  if (keys.length === 0) {
+    throw new Error("مفاتيح الـ API المزودة ليست صالحة. يرجى إدخال مفاتيح صحيحة في الإعدادات.");
+  }
+
+  let lastError: any = null;
+  for (let i = 0; i < keys.length; i++) {
+    const apiKey = keys[i];
+    try {
+      const masked = apiKey.length > 10 
+        ? `${apiKey.substring(0, 6)}...${apiKey.substring(apiKey.length - 4)}`
+        : "***";
+      console.log(`[Failover Engine] Attempting request using key index ${i} (${masked})`);
+      
+      const activeAi = new GoogleGenAI({
+        apiKey: apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      // Try different models as fallbacks inside this key's logic to guarantee success
+      const modelsToTry = [params.model];
+      if (params.model !== "gemini-2.5-flash") modelsToTry.push("gemini-2.5-flash");
+      if (params.model !== "gemini-flash-latest") modelsToTry.push("gemini-flash-latest");
+
+      let keySuccessResponse: any = null;
+      let lastModelError: any = null;
+
+      for (const currentModel of modelsToTry) {
+        try {
+          console.log(`[Failover Engine] Trying model: ${currentModel} on key index ${i}`);
+          const response = await activeAi.models.generateContent({
+            model: currentModel,
+            contents: params.contents,
+            config: params.config
+          });
+          keySuccessResponse = response;
+          console.log(`[Failover Engine] Request succeeded using model: ${currentModel} on key index ${i}!`);
+          break; // break the model loop, we succeeded!
+        } catch (modelErr: any) {
+          console.warn(`[Failover Engine] Model ${currentModel} failed on key index ${i}. error: ${modelErr?.message || modelErr}`);
+          lastModelError = modelErr;
+          
+          // If the API Key itself is invalid, no model will succeed. Let's break early to try next key.
+          const errMsg = String(modelErr?.message || "").toLowerCase();
+          if (errMsg.includes("api_key_invalid") || errMsg.includes("invalid api key") || errMsg.includes("not found or has been deactivated") || errMsg.includes("key is invalid")) {
+            console.warn(`[Failover Engine] Key index ${i} appears fully invalid. Transitioning to next key immediately.`);
+            break; 
+          }
+        }
+      }
+
+      if (keySuccessResponse) {
+        return keySuccessResponse;
+      } else {
+        throw lastModelError || new Error("فشلت جميع المحاولات الطرازية لمفتاح الـ API هذا.");
+      }
+
+    } catch (err: any) {
+      console.error(`[Failover Engine] Key index ${i} failed. Error: ${err?.message || err}`);
+      lastError = err;
+    }
+  }
+
+  throw new Error(`جميع مفاتيح الذكاء الاصطناعي الـ (${keys.length}) المتاحة فشلت في الاستجابة. الخطأ الأخير: ${lastError?.message || lastError}`);
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -135,26 +230,22 @@ async function startServer() {
   // API endpoints
   app.post("/api/chat", async (req, res) => {
     try {
-      const { messages, sentences, customApiKey } = req.body;
+      const { messages, sentences, customApiKey, email } = req.body;
       
-      // Determine which API key to use
-      const resolvedKey = customApiKey && customApiKey.trim() !== "" 
-        ? customApiKey.trim() 
-        : process.env.GEMINI_API_KEY;
-
-      if (!resolvedKey) {
-        throw new Error("Missing Gemini API Key. Please enter a key in the application settings or ensure the server configuration is complete.");
+      const emailNormalized = email ? email.toLowerCase().trim() : "";
+      const db = loadDatabase();
+      const isAdminCheck = checkIsAdmin(emailNormalized, db);
+      let isPremium = isAdminCheck;
+      if (emailNormalized && !isPremium) {
+        const user = db.users.find(u => u.email.toLowerCase().trim() === emailNormalized);
+        if (user && user.isPremium) {
+          isPremium = true;
+        }
       }
 
-      // Instantiate localized GoogleGenAI with resolved key
-      const activeAi = new GoogleGenAI({
-        apiKey: resolvedKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      if (!isPremium) {
+        return res.status(403).json({ error: "الدردشة الحية مع المعلم الذكي ميزة حصرية للاشتراك المدفوع Premium. يرجى الترقية للوصول إليها." });
+      }
 
       // format context
       const sentencesContext = sentences && sentences.length > 0
@@ -191,8 +282,8 @@ async function startServer() {
         }
       `;
 
-      const response = await activeAi.models.generateContent({
-        model: "gemini-flash-latest",
+      const response = await generateContentWithFailover(customApiKey, {
+        model: "gemini-3.5-flash",
         contents: prompt,
         config: {
           systemInstruction: "You are a professional, gentle German teacher helper who speaks Arabic. You always output responses in valid JSON format.",
@@ -212,16 +303,6 @@ async function startServer() {
   app.post("/api/check-grammar", async (req, res) => {
     try {
       const { sentence, referenceSentence, customApiKey } = req.body;
-      const resolvedKey = customApiKey && customApiKey.trim() !== "" ? customApiKey.trim() : process.env.GEMINI_API_KEY;
-
-      if (!resolvedKey) {
-        throw new Error("Missing Gemini API Key.");
-      }
-
-      const activeAi = new GoogleGenAI({
-        apiKey: resolvedKey,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-      });
 
       let prompt = "";
       if (referenceSentence) {
@@ -277,8 +358,8 @@ async function startServer() {
         `;
       }
 
-      const response = await activeAi.models.generateContent({
-        model: "gemini-flash-latest",
+      const response = await generateContentWithFailover(customApiKey, {
+        model: "gemini-3.5-flash",
         contents: prompt,
         config: {
           systemInstruction: "You are a professional German grammar helper who outputs valid JSON according to the schema.",
@@ -294,19 +375,55 @@ async function startServer() {
     }
   });
 
+  app.post("/api/explain-lessons", async (req, res) => {
+    try {
+      const { topic, customApiKey, email } = req.body;
+      
+      if (!topic || topic.trim() === "") {
+        return res.status(400).json({ error: "الرجاء توفير اسم قاعدة أو موضوع لغوي لشرحه." });
+      }
+
+      // Check access eligibility
+      if (email) {
+        const db = loadDatabase();
+        const user = db.users.find(u => u.email.toLowerCase().trim() === email.toLowerCase().trim());
+        const isUserAdmin = checkIsAdmin(email, db);
+        const hasPremium = user?.isPremium || isUserAdmin;
+        if (!hasPremium) {
+          return res.status(403).json({ error: "شرح القواعد بالذكاء الاصطناعي متاح فقط للمشتركين ذوي العضوية الممتازة (Premium)." });
+        }
+      }
+
+      const prompt = `
+        You are an expert German language teacher who explains grammar rules to Arabic speakers.
+        Explain the following topic, word or expression in German: "${topic}"
+        
+        Write a complete, highly pedagogical explanation containing:
+        1. Explaining the conceptual rule clearly in Arabic.
+        2. Give 3 diverse, practical German sentences as examples, with clear German text and their parallel literal and natural Arabic translation.
+        3. A quick summary or rule-of-thumb tip at the end.
+        
+        Use friendly formatting, bullet points, clear spacing, but do not use markdown characters that would break JSON formatting or represent bad styling. Keep the layout beautiful. Focus purely on explaining the topic "${topic}" in a structured and easy-to-learn format.
+      `;
+
+      const response = await generateContentWithFailover(customApiKey, {
+        model: "gemini-3.5-flash",
+        contents: prompt,
+        config: {
+          systemInstruction: "You are a professional pedagogical German grammar tutor explaining rules for Arabic native speakers. Write beautiful explanations in neat text paragraphs.",
+        }
+      });
+
+      res.json({ success: true, explanation: response.text || "" });
+    } catch (error: any) {
+      console.error("Gemini API Error (explain-lessons):", error);
+      res.status(500).json({ error: error?.message || "Internal server error" });
+    }
+  });
+
   app.post("/api/analyse-speech", async (req, res) => {
     try {
       const { targetText, transcribedText, customApiKey } = req.body;
-      const resolvedKey = customApiKey && customApiKey.trim() !== "" ? customApiKey.trim() : process.env.GEMINI_API_KEY;
-
-      if (!resolvedKey) {
-        throw new Error("Missing Gemini API Key.");
-      }
-
-      const activeAi = new GoogleGenAI({
-        apiKey: resolvedKey,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-      });
 
       const prompt = `
         The user is practicing German pronunciation.
@@ -332,8 +449,8 @@ async function startServer() {
         }
       `;
 
-      const response = await activeAi.models.generateContent({
-        model: "gemini-flash-latest",
+      const response = await generateContentWithFailover(customApiKey, {
+        model: "gemini-3.5-flash",
         contents: prompt,
         config: {
           systemInstruction: "You are a friendly German pronunciation coach who outputs valid JSON according to the schema.",
@@ -548,18 +665,20 @@ async function startServer() {
       if (chatTurnsCompleted !== undefined) user.chatTurnsCompleted = chatTurnsCompleted;
 
       // Sync premium properties ONLY if they are not downgraded by mistake or keep server version authoritative for approval
-      // Let server authoritative state override if server has "approved" and client doesn't know yet.
-      // But let client push "pending" if they submitted request.
-      if (premiumStatus === "pending") {
-        user.premiumStatus = "pending";
-        if (premiumPlan) user.premiumPlan = premiumPlan;
+      // Once a user is approved as Premium on the server, we MUST NOT allow any client sync to downgrade or reset them back to pending or none.
+      if (user.premiumStatus !== "approved" && !user.isPremium) {
+        if (premiumStatus === "pending") {
+          user.premiumStatus = "pending";
+          if (premiumPlan) user.premiumPlan = premiumPlan;
+        }
       }
 
       user.lastActiveAt = new Date().toISOString();
       saveDatabase(db);
 
       const { passwordHash, ...userResponse } = user;
-      res.json({ success: true, user: userResponse });
+      const isAdminFlag = checkIsAdmin(emailNormalized, db);
+      res.json({ success: true, user: { ...userResponse, isAdmin: isAdminFlag } });
     } catch (e) {
       res.status(500).json({ error: "فشل مزامنة البيانات." });
     }
@@ -615,11 +734,11 @@ async function startServer() {
   app.get("/api/admin/stats", async (req, res) => {
     try {
       const { adminEmail } = req.query;
-      if (!adminEmail || (adminEmail as string).toLowerCase().trim() !== "ashrafadelnn666@gmail.com") {
+      const db = loadDatabase();
+      if (!adminEmail || !checkIsAdmin(adminEmail as string, db)) {
         return res.status(403).json({ error: "إجراء غير مصرح به! الإحصائيات للمسؤول فقط." });
       }
 
-      const db = loadDatabase();
       const totalUsers = db.users.length;
 
       // Active in last 24 hours
@@ -659,71 +778,15 @@ async function startServer() {
     }
   });
 
-  // COMMUNITY CHAT: Fetch recent messages (public room for German learners)
-  app.get("/api/community/messages", async (req, res) => {
-    try {
-      const db = loadDatabase();
-      const messages = (db.communityMessages || []).slice(-150);
-      res.json({ success: true, messages });
-    } catch (e) {
-      res.status(500).json({ error: "حدث خطأ أثناء تحميل رسائل المجتمع." });
-    }
-  });
-
-  // COMMUNITY CHAT: Send a new message to the public room
-  app.post("/api/community/send", async (req, res) => {
-    try {
-      const { email, content } = req.body;
-      if (!email || !content || !content.trim()) {
-        return res.status(400).json({ error: "البريد الإلكتروني والرسالة مطلوبان." });
-      }
-
-      const trimmed = content.trim();
-      if (trimmed.length > 500) {
-        return res.status(400).json({ error: "الرسالة طويلة جداً (الحد الأقصى 500 حرف)." });
-      }
-
-      const emailNormalized = email.toLowerCase().trim();
-      const db = loadDatabase();
-      const user = db.users.find(u => u.email.toLowerCase().trim() === emailNormalized);
-      if (!user) {
-        return res.status(404).json({ error: "المستخدم غير موجود." });
-      }
-
-      const newMessage: DBCommunityMessage = {
-        id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        userEmail: emailNormalized,
-        userName: user.name,
-        content: trimmed,
-        createdAt: new Date().toISOString(),
-      };
-
-      if (!Array.isArray(db.communityMessages)) db.communityMessages = [];
-      db.communityMessages.push(newMessage);
-
-      // Keep storage bounded to the most recent 500 messages
-      if (db.communityMessages.length > 500) {
-        db.communityMessages = db.communityMessages.slice(-500);
-      }
-
-      user.lastActiveAt = new Date().toISOString();
-      saveDatabase(db);
-
-      res.json({ success: true, message: newMessage });
-    } catch (e) {
-      res.status(500).json({ error: "حدث خطأ أثناء إرسال الرسالة." });
-    }
-  });
-
   // 7. ADMIN: GET ALL USERS (excluding hashes)
   app.get("/api/admin/users", async (req, res) => {
     try {
       const { adminEmail, q } = req.query;
-      if (!adminEmail || (adminEmail as string).toLowerCase().trim() !== "ashrafadelnn666@gmail.com") {
+      const db = loadDatabase();
+      if (!adminEmail || !checkIsAdmin(adminEmail as string, db)) {
         return res.status(403).json({ error: "غير مصرح لك بالوصول! لوحة التحكم للمسؤولين فقط." });
       }
 
-      const db = loadDatabase();
       let filteredUsers = db.users.map(({ passwordHash, ...u }) => u);
 
       if (q && (q as string).trim() !== "") {
@@ -745,7 +808,8 @@ async function startServer() {
   app.get("/api/admin/requests", async (req, res) => {
     try {
       const { adminEmail } = req.query;
-      if (!adminEmail || (adminEmail as string).toLowerCase().trim() !== "ashrafadelnn666@gmail.com") {
+      const db = loadDatabase();
+      if (!adminEmail || !checkIsAdmin(adminEmail as string, db)) {
         return res.status(403).json({ error: "غير مصرح لك بالوصول!" });
       }
 
@@ -761,8 +825,9 @@ async function startServer() {
     try {
       const { id } = req.params;
       const { adminEmail } = req.body;
+      const db = loadDatabase();
 
-      if (!adminEmail || adminEmail.toLowerCase().trim() !== "ashrafadelnn666@gmail.com") {
+      if (!adminEmail || !checkIsAdmin(adminEmail as string, db)) {
         return res.status(403).json({ error: "لوحة التحكم للمدير فقط!" });
       }
 
@@ -807,8 +872,9 @@ async function startServer() {
     try {
       const { id } = req.params;
       const { adminEmail } = req.body;
+      const db = loadDatabase();
 
-      if (!adminEmail || adminEmail.toLowerCase().trim() !== "ashrafadelnn666@gmail.com") {
+      if (!adminEmail || !checkIsAdmin(adminEmail as string, db)) {
         return res.status(403).json({ error: "لوحة التحكم للمدير فقط!" });
       }
 
@@ -842,12 +908,12 @@ async function startServer() {
     try {
       const { userId } = req.params;
       const { adminEmail, isPremium, planName } = req.body;
+      const db = loadDatabase();
 
-      if (!adminEmail || adminEmail.toLowerCase().trim() !== "ashrafadelnn666@gmail.com") {
+      if (!adminEmail || !checkIsAdmin(adminEmail as string, db)) {
         return res.status(403).json({ error: "إجراء خاص بالمسؤولين فقط!" });
       }
 
-      const db = loadDatabase();
       const uIndex = db.users.findIndex(u => u.id === userId);
       if (uIndex === -1) {
         return res.status(404).json({ error: "المستخدم غير موجود!" });
@@ -873,12 +939,41 @@ async function startServer() {
     }
   });
 
+  app.post("/api/admin/users/:userId/toggle-admin", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { adminEmail, isAdmin } = req.body;
+      const db = loadDatabase();
+
+      if (!adminEmail || !checkIsAdmin(adminEmail as string, db)) {
+        return res.status(403).json({ error: "إجراء خاص بالمسؤولين فقط!" });
+      }
+
+      const uIndex = db.users.findIndex(u => u.id === userId);
+      if (uIndex === -1) {
+        return res.status(404).json({ error: "المستخدم غير موجود!" });
+      }
+
+      const user = db.users[uIndex];
+      if (user.email.toLowerCase().trim() === "ashrafadelnn666@gmail.com" && !isAdmin) {
+        return res.status(400).json({ error: "لا يمكنك إلغاء صلاحية المسؤول للمالك الأساسي!" });
+      }
+
+      (user as any).isAdmin = !!isAdmin;
+      saveDatabase(db);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "فشل تعديل صلاحية الإدارة للمستخدم." });
+    }
+  });
+
   app.post("/api/admin/users/:userId/delete", async (req, res) => {
     try {
       const { userId } = req.params;
       const { adminEmail } = req.body;
+      const db = loadDatabase();
 
-      if (!adminEmail || adminEmail.toLowerCase().trim() !== "ashrafadelnn666@gmail.com") {
+      if (!adminEmail || !checkIsAdmin(adminEmail as string, db)) {
         return res.status(403).json({ error: "إجراء خاص بالمسؤولين فقط!" });
       }
 
@@ -899,6 +994,212 @@ async function startServer() {
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: "فشل حذف حساب المستخدم." });
+    }
+  });
+
+  // 12. LANGUAGE COMMUNITY VOICE ROOMS API
+  interface RoomParticipant {
+    id: string;
+    name: string;
+    isHost: boolean;
+    isMuted: boolean;
+    isHandRaised: boolean;
+    connected: boolean;
+    lastActive: number;
+  }
+
+  interface VoiceRoom {
+    id: string;
+    name: string;
+    level: string; // A1, A2, B1, B2, C1, Custom
+    hostEmail: string;
+    hostName: string;
+    participants: RoomParticipant[];
+    createdAt: string;
+  }
+
+  let activeRooms: VoiceRoom[] = [
+    {
+      id: "public-a1",
+      name: "الغرفة الصوتية العامة للمستوى المبتدئ A1 🇩🇪",
+      level: "A1",
+      hostEmail: "system",
+      hostName: "المشرف التلقائي",
+      participants: [],
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "public-b1",
+      name: "مناقشة بطلاقة للمستوى المتوسط B1 🌟",
+      level: "B1",
+      hostEmail: "system",
+      hostName: "المشرف التلقائي",
+      participants: [],
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "public-c1",
+      name: "ملتقى الخبراء للمستوى المتقدم C1 ♕",
+      level: "C1",
+      hostEmail: "system",
+      hostName: "المشرف التلقائي",
+      participants: [],
+      createdAt: new Date().toISOString()
+    }
+  ];
+
+  app.get("/api/community/rooms", (req, res) => {
+    res.json({ success: true, rooms: activeRooms });
+  });
+
+  app.post("/api/community/rooms", (req, res) => {
+    try {
+      const { name, level, hostName, hostEmail } = req.body;
+      if (!name || !level || !hostName) {
+        return res.status(400).json({ error: "الرجاء توفير كافة التفاصيل لإنشاء الغرفة." });
+      }
+
+      const newRoom: VoiceRoom = {
+        id: "room-" + crypto.randomUUID(),
+        name,
+        level,
+        hostEmail: hostEmail || "anonymous",
+        hostName,
+        participants: [
+          {
+            id: hostEmail || "host-uid",
+            name: hostName,
+            isHost: true,
+            isMuted: false,
+            isHandRaised: false,
+            connected: true,
+            lastActive: Date.now()
+          }
+        ],
+        createdAt: new Date().toISOString()
+      };
+
+      activeRooms.push(newRoom);
+      res.json({ success: true, room: newRoom });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "فشل إنشاء الغرفة الدولية." });
+    }
+  });
+
+  app.post("/api/community/rooms/:roomId/join", (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { participantId, participantName, isHost } = req.body;
+      if (!participantId || !participantName) {
+        return res.status(400).json({ error: "بيانات المشارك غير مكتملة." });
+      }
+
+      const room = activeRooms.find(r => r.id === roomId);
+      if (!room) {
+        return res.status(404).json({ error: "الغرفة غير موجودة في النظام." });
+      }
+
+      const existingIndex = room.participants.findIndex(p => p.id === participantId);
+      if (existingIndex !== -1) {
+        room.participants[existingIndex].connected = true;
+        room.participants[existingIndex].lastActive = Date.now();
+      } else {
+        // Clear out this user from any other room they might be in
+        activeRooms.forEach(r => {
+          r.participants = r.participants.filter(p => p.id !== participantId);
+        });
+
+        room.participants.push({
+          id: participantId,
+          name: participantName,
+          isHost: isHost || false,
+          isMuted: false,
+          isHandRaised: false,
+          connected: true,
+          lastActive: Date.now()
+        });
+      }
+
+      res.json({ success: true, room });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/community/rooms/:roomId/update", (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { participantId, isMuted, isHandRaised, connected } = req.body;
+
+      const room = activeRooms.find(r => r.id === roomId);
+      if (!room) {
+        return res.status(404).json({ error: "الغرفة غير موجودة." });
+      }
+
+      const p = room.participants.find(part => part.id === participantId);
+      if (p) {
+        if (isMuted !== undefined) p.isMuted = isMuted;
+        if (isHandRaised !== undefined) p.isHandRaised = isHandRaised;
+        if (connected !== undefined) p.connected = connected;
+        p.lastActive = Date.now();
+      }
+
+      res.json({ success: true, room });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/community/rooms/:roomId/kick", (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { targetParticipantId } = req.body;
+
+      const room = activeRooms.find(r => r.id === roomId);
+      if (!room) {
+        return res.status(404).json({ error: "الغرفة غير موجودة." });
+      }
+
+      room.participants = room.participants.filter(p => p.id !== targetParticipantId);
+      res.json({ success: true, room });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/community/rooms/:roomId/mute", (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { targetParticipantId, muteState } = req.body;
+
+      const room = activeRooms.find(r => r.id === roomId);
+      if (!room) {
+        return res.status(404).json({ error: "الغرفة غير موجودة." });
+      }
+
+      const p = room.participants.find(part => part.id === targetParticipantId);
+      if (p) {
+        p.isMuted = muteState;
+      }
+
+      res.json({ success: true, room });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/community/rooms/:roomId/leave", (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { participantId } = req.body;
+
+      const room = activeRooms.find(r => r.id === roomId);
+      if (room) {
+        room.participants = room.participants.filter(p => p.id !== participantId);
+      }
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
